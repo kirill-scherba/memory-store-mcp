@@ -1,0 +1,241 @@
+// Copyright 2026 Kirill Scherba. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+// Default LLM model and Ollama settings for extraction and suggestion.
+const (
+	defaultLLMModel = "phi4-mini"
+	ollamaBaseURL   = "http://localhost:11434"
+	generateTimeout = 120 * time.Second
+)
+
+// ollamaClient is a reusable HTTP client with keep-alive transport.
+var ollamaClient = &http.Client{
+	Timeout: generateTimeout,
+	Transport: &http.Transport{
+		MaxIdleConns:    5,
+		IdleConnTimeout: 90 * time.Second,
+	},
+}
+
+// ollamaModelOverride overrides the embedding model when set via --model flag.
+var ollamaModelOverride string
+
+// chatModelOverride overrides the chat model (for extraction/suggest).
+var chatModelOverride string
+
+// setOllamaModel sets the embedding model override.
+func setOllamaModel(m string) {
+	if m != "" {
+		ollamaModelOverride = m
+	}
+}
+
+// setChatModel sets the chat model override.
+func setChatModel(m string) {
+	if m != "" {
+		chatModelOverride = m
+	}
+}
+
+// OllamaChatMessage represents a message in the chat API.
+type OllamaChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// OllamaChatRequest is the request to Ollama /api/chat.
+type OllamaChatRequest struct {
+	Model    string              `json:"model"`
+	Messages []OllamaChatMessage `json:"messages"`
+	Stream   *bool               `json:"stream,omitempty"`
+}
+
+// OllamaChatResponse is the response from Ollama /api/chat.
+type OllamaChatResponse struct {
+	Message *OllamaChatMessage `json:"message,omitempty"`
+	Done    bool               `json:"done"`
+}
+
+// boolPtr returns a pointer to the given boolean value.
+func boolPtr(b bool) *bool { return &b }
+
+// parseOllamaResponse handles both streaming (NDJSON) and non-streaming JSON
+// responses from the Ollama /api/chat endpoint.
+func parseOllamaResponse(data []byte) (string, error) {
+	// Try parsing as single JSON object first (non-streaming response)
+	var singleResp OllamaChatResponse
+	if err := json.Unmarshal(data, &singleResp); err == nil {
+		if singleResp.Message != nil {
+			return strings.TrimSpace(singleResp.Message.Content), nil
+		}
+	}
+
+	// Fallback: parse as NDJSON (streaming response with one JSON object per line)
+	var answerParts []string
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var chunk OllamaChatResponse
+		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+			continue // skip malformed lines
+		}
+		if chunk.Message != nil {
+			answerParts = append(answerParts, chunk.Message.Content)
+		}
+		if chunk.Done {
+			break
+		}
+	}
+	if len(answerParts) > 0 {
+		answer := strings.Join(answerParts, "")
+		return strings.TrimSpace(answer), nil
+	}
+
+	return "", fmt.Errorf("failed to parse Ollama response (body: %s)", string(data))
+}
+
+// generateAnswer sends a non-streaming chat request to Ollama and returns
+// the generated answer.
+func generateAnswer(messages []OllamaChatMessage) (string, error) {
+	baseURL := os.Getenv("OLLAMA_BASE_URL")
+	if baseURL == "" {
+		baseURL = ollamaBaseURL
+	}
+
+	model := chatModelOverride
+	if model == "" {
+		model = ollamaModelOverride
+	}
+	if model == "" {
+		model = os.Getenv("LLM_MODEL")
+	}
+	if model == "" {
+		model = defaultLLMModel
+	}
+
+	// Non-streaming request
+	reqBody := OllamaChatRequest{
+		Model:    model,
+		Messages: messages,
+		Stream:   boolPtr(false),
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := ollamaClient.Post(baseURL+"/api/chat", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("Ollama chat request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Ollama returned error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Ollama response: %w", err)
+	}
+
+	return parseOllamaResponse(data)
+}
+
+// generateAnswerStream sends a streaming chat request to Ollama and returns
+// the full answer. Tokens are written to stderr (like in rag-mcp).
+func generateAnswerStream(messages []OllamaChatMessage) (string, error) {
+	baseURL := os.Getenv("OLLAMA_BASE_URL")
+	if baseURL == "" {
+		baseURL = ollamaBaseURL
+	}
+
+	model := chatModelOverride
+	if model == "" {
+		model = ollamaModelOverride
+	}
+	if model == "" {
+		model = os.Getenv("LLM_MODEL")
+	}
+	if model == "" {
+		model = defaultLLMModel
+	}
+
+	reqBody := OllamaChatRequest{
+		Model:    model,
+		Messages: messages,
+		Stream:   boolPtr(true),
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := ollamaClient.Post(baseURL+"/api/chat", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("Ollama chat request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Ollama returned error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	var answer strings.Builder
+	streamStarted := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var chunk OllamaChatResponse
+		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+			continue
+		}
+
+		if chunk.Message != nil {
+			token := chunk.Message.Content
+			if !streamStarted {
+				streamStarted = true
+				fmt.Fprintf(os.Stderr, "---LLM---")
+			}
+			fmt.Fprintf(os.Stderr, "%s", token)
+			answer.WriteString(token)
+		}
+
+		if chunk.Done {
+			fmt.Fprintf(os.Stderr, "\n")
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading Ollama stream: %w", err)
+	}
+
+	return strings.TrimSpace(answer.String()), nil
+}

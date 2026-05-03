@@ -16,13 +16,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 
-	"github.com/kirill-scherba/keyvalembd"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -30,6 +32,10 @@ func main() {
 	// Command line flags
 	dbPath := flag.String("db", "",
 		"Path to the database (default: ~/.config/memory-store-mcp/memory.db)")
+	model := flag.String("model", "embeddinggemma:latest",
+		"Ollama embedding model (default: embeddinggemma:latest)")
+	chatModel := flag.String("chat-model", "",
+		"Ollama chat model for extraction/suggest (default: same as --model)")
 	showHelp := flag.Bool("h", false, "Show help")
 	flag.Parse()
 
@@ -44,6 +50,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  EMBEDDING_MODEL     Embedding model (default: embeddinggemma:latest)\n")
 		os.Exit(0)
 	}
+
+	// Set model from flags (env vars take precedence)
+	if m := os.Getenv("EMBEDDING_MODEL"); m != "" {
+		*model = m
+	}
+	setOllamaModel(*model)
+
+	if *chatModel == "" {
+		*chatModel = *model
+	}
+	setChatModel(*chatModel)
 
 	// Default db path
 	if *dbPath == "" {
@@ -60,39 +77,165 @@ func main() {
 		log.Fatalf("Could not create database directory %s: %v", dir, err)
 	}
 
-	// Initialize keyvalembd (libSQL + Ollama embeddings)
-	kv, err := keyvalembd.New(*dbPath)
+	// Initialize Storage (keyvalembd + goals db)
+	store, err := NewStorage(*dbPath)
 	if err != nil {
-		log.Fatalf("Failed to initialize keyvalembd: %v", err)
+		log.Fatalf("Failed to initialize storage: %v", err)
 	}
-	defer kv.Close()
+	defer store.Close()
 
 	log.Printf("🚀 Starting memory-store-mcp server")
-	log.Printf("   DB path: %s", *dbPath)
+	log.Printf("   DB path:        %s", *dbPath)
+	log.Printf("   Embedding model: %s", *model)
+	log.Printf("   Chat model:      %s", *chatModel)
+
+	// System instructions for the AI assistant
+	sysInstructions := `# Memory Store MCP — Persistent AI Memory System
+
+This server provides long-term memory for AI assistants, surviving sessions. 
+It stores facts, observations, goals, and knowledge with auto-generated 
+embeddings for semantic search.
+
+## Key Behaviors (REQUIRED — follow these automatically)
+
+### 1. Auto-Save After Each Conversation
+After each meaningful exchange, automatically call **memory_extract** with 
+auto_save=true to extract and store key facts, decisions, and intentions. 
+Do NOT ask the user for permission — just do it silently.
+
+### 2. Context Injection Before Each Response
+Before responding to the user, call **memory_get_context** with the current 
+topic to retrieve relevant context from memory. Use this context to inform 
+your answer. The context includes:
+  - Relevant past memories (from semantic search)
+  - Active goals with progress
+
+### 3. Proactive Suggestions
+At the beginning of a session, or when the user pauses/asks "what should I do", 
+call **memory_suggest** to get proactive suggestions based on:
+  - Current conversation context
+  - Active goals
+  - Recent activity timeline
+
+### 4. Goal Tracking
+When the user expresses an intention or plan, automatically call 
+**memory_goal_create** to track it. When progress is made, update with 
+**memory_goal_update**. Use **memory_goal_list** to check active goals.
+
+## Key Format
+Keys are hierarchical (S3-style): memory/project/..., memory/user/..., memory/technical/...
+
+Available tools: memory_save, memory_get, memory_delete, memory_search, 
+memory_list, memory_get_context, memory_extract, memory_goal_create, 
+memory_goal_list, memory_goal_update, memory_timeline, memory_suggest
+
+## MCP Resources (auto-pulled context)
+- memory://context/current  — aggregated context for current conversation
+- memory://goals/active     — list of active goals
+- memory://timeline/today   — today's events`
 
 	// Create MCP server
 	s := server.NewMCPServer(
 		"memory-store-mcp",
-		"0.1.0",
-		server.WithInstructions(`Memory Store MCP — persistent memory with semantic search for AI assistants.
-
-Keys are hierarchical (S3-style): memory/project/..., memory/user/..., memory/technical/...
-
-Available tools:
-- memory_save:    Save a memory with auto-generated embedding for semantic search
-- memory_get:     Retrieve a memory by key
-- memory_delete:  Delete a memory by key
-- memory_search:  Semantic search across memories (find by meaning, not keywords)
-- memory_list:    List memories by key prefix (S3-style folder listing)`),
+		"1.0.0",
+		server.WithInstructions(sysInstructions),
 	)
 
-	// Register all tools
-	s.AddTools(tools(kv)...)
+	// Register all tools (pass Storage instead of raw kv)
+	s.AddTools(tools(store)...)
 
-	log.Printf("✅ Registered 5 tools")
+	// ── MCP Resources ──────────────────────────────────────────────────────
+	// Register resource handlers for dynamic context injection.
+
+	// memory://context/current — aggregated context
+	contextRes := mcp.NewResource("memory://context/current",
+		"Current Context",
+		mcp.WithResourceDescription("Aggregated relevant context from memory for the current conversation"),
+		mcp.WithMIMEType("text/plain"),
+	)
+	s.AddResource(contextRes, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		text, err := store.GetContextForInjection("current context", 5)
+		if err != nil {
+			return nil, err
+		}
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "memory://context/current",
+				MIMEType: "text/plain",
+				Text:     text,
+			},
+		}, nil
+	})
+
+	// memory://goals/active — active goals
+	goalsRes := mcp.NewResource("memory://goals/active",
+		"Active Goals",
+		mcp.WithResourceDescription("List of currently active goals"),
+		mcp.WithMIMEType("application/json"),
+	)
+	s.AddResource(goalsRes, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		goals, err := store.ListGoals("active")
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.MarshalIndent(goals, "", "  ")
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "memory://goals/active",
+				MIMEType: "application/json",
+				Text:     string(data),
+			},
+		}, nil
+	})
+
+	// memory://timeline/today — today's events
+	timelineRes := mcp.NewResource("memory://timeline/today",
+		"Today's Timeline",
+		mcp.WithResourceDescription("Memory events from today"),
+		mcp.WithMIMEType("application/json"),
+	)
+	s.AddResource(timelineRes, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		timeline, err := store.GetTimeline("", "", 10)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.MarshalIndent(timeline, "", "  ")
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "memory://timeline/today",
+				MIMEType: "application/json",
+				Text:     string(data),
+			},
+		}, nil
+	})
+
+	// memory://insights/recent — recent patterns/insights
+	insightsRes := mcp.NewResource("memory://insights/recent",
+		"Recent Insights",
+		mcp.WithResourceDescription("Recently noticed patterns and insights from memory"),
+		mcp.WithMIMEType("application/json"),
+	)
+	s.AddResource(insightsRes, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		// Run a general suggestion to get insights
+		suggestions, err := store.Suggest("recent patterns and insights", 5)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.MarshalIndent(suggestions, "", "  ")
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "memory://insights/recent",
+				MIMEType: "application/json",
+				Text:     string(data),
+			},
+		}, nil
+	})
+
+	log.Printf("✅ Registered 12 tools and 4 resources")
 
 	// Start the server over stdin/stdout (JSON-RPC 2.0)
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
+

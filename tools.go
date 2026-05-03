@@ -10,39 +10,47 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kirill-scherba/keyvalembd"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
 // tools returns all MCP tools for memory-store-mcp.
-func tools(kv *keyvalembd.KeyValueEmbd) []server.ServerTool {
+func tools(s *Storage) []server.ServerTool {
 	return []server.ServerTool{
-		memorySaveTool(kv),
-		memoryGetTool(kv),
-		memoryDeleteTool(kv),
-		memorySearchTool(kv),
-		memoryListTool(kv),
+		memorySaveTool(s),
+		memoryGetTool(s),
+		memoryDeleteTool(s),
+		memorySearchTool(s),
+		memoryListTool(s),
+		memoryGetContextTool(s),
+		memoryExtractTool(s),
+		memoryGoalCreateTool(s),
+		memoryGoalListTool(s),
+		memoryGoalUpdateTool(s),
+		memoryTimelineTool(s),
+		memorySuggestTool(s),
 	}
 }
 
 // ─── memory_save ────────────────────────────────────────────────────────────────
 
-// memorySaveTool saves a memory with auto-generated embedding.
-func memorySaveTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
+// memorySaveTool saves a memory with auto-generated embedding and optional auto-key.
+func memorySaveTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_save",
-		mcp.WithDescription("Save a memory with auto-generated embedding for semantic search."),
+		mcp.WithDescription("Save a memory with auto-generated embedding for semantic search. Supports auto-key generation."),
 		mcp.WithString("key",
-			mcp.Description("Hierarchical key (e.g. memory/project/cooksy/architecture)"),
-			mcp.Required(),
+			mcp.Description("Hierarchical key (e.g. memory/project/cooksy/architecture). Optional if auto_key=true."),
 		),
 		mcp.WithString("value",
-			mcp.Description("JSON value with content, summary, tags, source, timestamp"),
+			mcp.Description("JSON value with content, summary, tags, source, timestamp, status, priority, goal_id"),
 			mcp.Required(),
 		),
 		mcp.WithString("text",
 			mcp.Description("Text to generate embedding for semantic search"),
 			mcp.Required(),
+		),
+		mcp.WithBoolean("auto_key",
+			mcp.Description("If true, auto-generate key as memory/auto/YYYY-MM-DD/<hash>"),
 		),
 	)
 
@@ -53,18 +61,24 @@ func memorySaveTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
 			key, _ := args["key"].(string)
 			value, _ := args["value"].(string)
 			text, _ := args["text"].(string)
+			autoKey, _ := args["auto_key"].(bool)
 
-			if key == "" || value == "" || text == "" {
-				return mcp.NewToolResultText("Error: key, value, and text are required"), nil
+			if value == "" || text == "" {
+				return mcp.NewToolResultText("Error: value and text are required"), nil
 			}
 
-			info, err := kv.SetWithEmbedding(key, []byte(value), text)
+			// Parse value into MemoryValue
+			var memVal MemoryValue
+			if err := json.Unmarshal([]byte(value), &memVal); err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error parsing value JSON: %v", err)), nil
+			}
+
+			savedKey, err := s.Save(key, &memVal, text, autoKey)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error saving memory: %v", err)), nil
 			}
 
-			result := fmt.Sprintf("Memory saved\nKey: %s\nChecksum: %s\nSize: %d bytes",
-				key, info.Checksum, info.ContentLength)
+			result := fmt.Sprintf("Memory saved\nKey: %s", savedKey)
 			return mcp.NewToolResultText(result), nil
 		},
 	}
@@ -73,7 +87,7 @@ func memorySaveTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
 // ─── memory_get ─────────────────────────────────────────────────────────────────
 
 // memoryGetTool retrieves a memory by its key.
-func memoryGetTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
+func memoryGetTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_get",
 		mcp.WithDescription("Retrieve a memory by its key. Returns the stored JSON value."),
 		mcp.WithString("key",
@@ -90,11 +104,12 @@ func memoryGetTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
 			if key == "" {
 				return mcp.NewToolResultText("Error: key is required"), nil
 			}
-			value, err := kv.Get(key)
+			val, err := s.Get(key)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
 			}
-			return mcp.NewToolResultText(string(value)), nil
+			data, _ := json.MarshalIndent(val, "", "  ")
+			return mcp.NewToolResultText(string(data)), nil
 		},
 	}
 }
@@ -102,7 +117,7 @@ func memoryGetTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
 // ─── memory_delete ──────────────────────────────────────────────────────────────
 
 // memoryDeleteTool deletes a memory by key.
-func memoryDeleteTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
+func memoryDeleteTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_delete",
 		mcp.WithDescription("Delete a memory by its key. Also removes its embedding."),
 		mcp.WithString("key",
@@ -119,7 +134,7 @@ func memoryDeleteTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
 			if key == "" {
 				return mcp.NewToolResultText("Error: key is required"), nil
 			}
-			if err := kv.Del(key); err != nil {
+			if err := s.Delete(key); err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error deleting memory: %v", err)), nil
 			}
 			return mcp.NewToolResultText(fmt.Sprintf("Deleted memory: %s", key)), nil
@@ -130,7 +145,7 @@ func memoryDeleteTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
 // ─── memory_search ──────────────────────────────────────────────────────────────
 
 // memorySearchTool performs semantic search across memories.
-func memorySearchTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
+func memorySearchTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_search",
 		mcp.WithDescription(`Semantic search across memories. Finds relevant memories by meaning,
 not just keywords. Uses Ollama embeddings for vector similarity.`),
@@ -163,7 +178,7 @@ not just keywords. Uses Ollama embeddings for vector similarity.`),
 				limit = 10
 			}
 
-			results, err := kv.SearchSemantic(query, limit)
+			results, err := s.Search(query, limit)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Search error: %v\nTip: Ensure Ollama is running and has the embedding model installed.", err)), nil
 			}
@@ -180,7 +195,7 @@ not just keywords. Uses Ollama embeddings for vector similarity.`),
 // ─── memory_list ────────────────────────────────────────────────────────────────
 
 // memoryListTool lists memories by prefix.
-func memoryListTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
+func memoryListTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_list",
 		mcp.WithDescription(`List memories by key prefix. S3-style folder semantics:
 - Keys ending with '/' are folders
@@ -198,9 +213,9 @@ func memoryListTool(kv *keyvalembd.KeyValueEmbd) server.ServerTool {
 			args := request.GetArguments()
 			prefix, _ := args["prefix"].(string)
 
-			var keys []string
-			for key := range kv.List(prefix) {
-				keys = append(keys, key)
+			keys, err := s.List(prefix)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error listing memories: %v", err)), nil
 			}
 			if len(keys) == 0 {
 				return mcp.NewToolResultText("No memories found."), nil
