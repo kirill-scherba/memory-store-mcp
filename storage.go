@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,15 +39,15 @@ type MemoryValue struct {
 
 // Goal represents a tracked goal.
 type Goal struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description,omitempty"`
-	Status      string    `json:"status"` // active, completed, archived
-	Priority    int       `json:"priority"`
-	Progress    int       `json:"progress"` // 0-100
-	Deadline    string    `json:"deadline,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string `json:"id"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
+	Priority    int    `json:"priority"`
+	Progress    int    `json:"progress"`
+	Deadline    string `json:"deadline,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
 }
 
 // ContextResult is the aggregated context returned by GetContext.
@@ -292,7 +293,7 @@ func (s *Storage) CreateGoal(title, description, deadline string, priority int) 
 		time.Now().UTC().Format("2006-01-02"),
 		fmt.Sprintf("%x", md5.Sum([]byte(title)))[:8],
 	)
-	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().UTC().Unix()
 
 	_, err := s.goals.Exec(`
 		INSERT INTO goals (id, title, description, status, priority, progress, deadline, created_at, updated_at)
@@ -308,13 +309,12 @@ func (s *Storage) CreateGoal(title, description, deadline string, priority int) 
 // GetGoal retrieves a single goal by ID.
 func (s *Storage) GetGoal(id string) (*Goal, error) {
 	var g Goal
-	var createdAt, updatedAt string
 	var deadline string
 
 	err := s.goals.QueryRow(`
 		SELECT id, title, description, status, priority, progress, deadline, created_at, updated_at
 		FROM goals WHERE id = ?
-	`, id).Scan(&g.ID, &g.Title, &g.Description, &g.Status, &g.Priority, &g.Progress, &deadline, &createdAt, &updatedAt)
+	`, id).Scan(&g.ID, &g.Title, &g.Description, &g.Status, &g.Priority, &g.Progress, &deadline, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("goal %s not found", id)
@@ -323,8 +323,6 @@ func (s *Storage) GetGoal(id string) (*Goal, error) {
 	}
 
 	g.Deadline = deadline
-	g.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-	g.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 
 	return &g, nil
 }
@@ -358,8 +356,13 @@ func (s *Storage) ListGoals(status string) ([]Goal, error) {
 			return nil, fmt.Errorf("scan goal: %w", err)
 		}
 		g.Deadline = deadline
-		g.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		g.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		// Parse as int64 if numeric, otherwise parse as time string -> unix
+		if ct, err := parseIntOrTime(createdAt); err == nil {
+			g.CreatedAt = ct
+		}
+		if ut, err := parseIntOrTime(updatedAt); err == nil {
+			g.UpdatedAt = ut
+		}
 		goals = append(goals, g)
 	}
 
@@ -369,7 +372,7 @@ func (s *Storage) ListGoals(status string) ([]Goal, error) {
 // UpdateGoal updates an existing goal's fields.
 func (s *Storage) UpdateGoal(id, title, description, status, deadline string, priority, progress int) (*Goal, error) {
 	// Build dynamic UPDATE
-	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().UTC().Unix()
 	sets := []string{"updated_at = ?"}
 	args := []interface{}{now}
 
@@ -599,6 +602,21 @@ Return a JSON array of suggestions. Each suggestion has: type (reminder/followup
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// parseIntOrTime attempts to parse a string as int64 (Unix timestamp) first,
+// then as a time string in "2006-01-02 15:04:05" format.
+func parseIntOrTime(s string) (int64, error) {
+	// Try as int64 (Unix timestamp stored as TEXT in SQLite)
+	if val, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return val, nil
+	}
+	// Try as time string
+	t, err := time.Parse("2006-01-02 15:04:05", s)
+	if err != nil {
+		return 0, err
+	}
+	return t.Unix(), nil
+}
 
 // truncate shortens a string to maxLen runes, appending "…" if truncated.
 func truncate(s string, maxLen int) string {
