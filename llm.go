@@ -112,6 +112,18 @@ func parseOllamaResponse(data []byte) (string, error) {
 	return "", fmt.Errorf("failed to parse Ollama response (body: %s)", string(data))
 }
 
+// chatModel returns the effective chat model to use, selecting from
+// override -> env -> default.
+func chatModel() string {
+	if m := chatModelOverride; m != "" {
+		return m
+	}
+	if m := os.Getenv("LLM_MODEL"); m != "" {
+		return m
+	}
+	return defaultLLMModel
+}
+
 // generateAnswer sends a non-streaming chat request to Ollama and returns
 // the generated answer.
 func generateAnswer(messages []OllamaChatMessage) (string, error) {
@@ -120,20 +132,9 @@ func generateAnswer(messages []OllamaChatMessage) (string, error) {
 		baseURL = ollamaBaseURL
 	}
 
-	model := chatModelOverride
-	if model == "" {
-		model = ollamaModelOverride
-	}
-	if model == "" {
-		model = os.Getenv("LLM_MODEL")
-	}
-	if model == "" {
-		model = defaultLLMModel
-	}
-
 	// Non-streaming request
 	reqBody := OllamaChatRequest{
-		Model:    model,
+		Model:    chatModel(),
 		Messages: messages,
 		Stream:   boolPtr(false),
 	}
@@ -170,19 +171,8 @@ func generateAnswerStream(messages []OllamaChatMessage) (string, error) {
 		baseURL = ollamaBaseURL
 	}
 
-	model := chatModelOverride
-	if model == "" {
-		model = ollamaModelOverride
-	}
-	if model == "" {
-		model = os.Getenv("LLM_MODEL")
-	}
-	if model == "" {
-		model = defaultLLMModel
-	}
-
 	reqBody := OllamaChatRequest{
-		Model:    model,
+		Model:    chatModel(),
 		Messages: messages,
 		Stream:   boolPtr(true),
 	}

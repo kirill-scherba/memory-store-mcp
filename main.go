@@ -35,7 +35,7 @@ func main() {
 	model := flag.String("model", "embeddinggemma:latest",
 		"Ollama embedding model (default: embeddinggemma:latest)")
 	chatModel := flag.String("chat-model", "",
-		"Ollama chat model for extraction/suggest (default: same as --model)")
+		"Ollama chat model for extraction/suggest (default: phi4-mini)")
 	showHelp := flag.Bool("h", false, "Show help")
 	flag.Parse()
 
@@ -57,10 +57,9 @@ func main() {
 	}
 	setOllamaModel(*model)
 
-	if *chatModel == "" {
-		*chatModel = *model
+	if *chatModel != "" {
+		setChatModel(*chatModel)
 	}
-	setChatModel(*chatModel)
 
 	// Default db path
 	if *dbPath == "" {
