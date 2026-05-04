@@ -568,7 +568,7 @@ Return a JSON array of suggestions. Each suggestion has: type (reminder/followup
 	suggestPrompt := SuggestPrompt(prompt)
 
 	msg := []OllamaChatMessage{
-		{Role: "system", Content: "You are a proactive assistant. Analyse context and goals to suggest next steps. Return ONLY a JSON array, nothing else."},
+		{Role: "system", Content: suggestSystemPrompt()},
 		{Role: "user", Content: suggestPrompt},
 	}
 
