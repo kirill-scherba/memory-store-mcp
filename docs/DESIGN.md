@@ -2,7 +2,7 @@
 
 ## Architecture
 
-```
+```txt
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     MCP Client (AI Assistant)                        │
 │          initialize → tools/list → resources/ → tools/call          │
@@ -121,63 +121,75 @@ Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 ## Tool Definitions
 
 ### memory_save
+
 - **Purpose**: Save a memory with auto-generated embedding
 - **Parameters**: `key` (string, required), `value` (string, required — JSON), `text` (string, required — for embedding), `auto_key` (bool, optional — auto-generate key as `memory/auto/YYYY-MM-DD/<hash>`)
 - **Returns**: Success message with key, checksum, size
 
 ### memory_get
+
 - **Purpose**: Retrieve a memory by key
 - **Parameters**: `key` (string, required)
 - **Returns**: Stored JSON value
 
 ### memory_delete
+
 - **Purpose**: Delete a memory and its embedding
 - **Parameters**: `key` (string, required)
 - **Returns**: Success message
 
 ### memory_search
+
 - **Purpose**: Semantic search across memories
 - **Parameters**: `query` (string, required), `limit` (number, optional, default 10, max 50)
 - **Returns**: JSON array of `{key, text, score}` sorted by relevance
 
 ### memory_list
+
 - **Purpose**: List memories by key prefix
 - **Parameters**: `prefix` (string, required)
 - **Returns**: List of keys (S3-style folder semantics)
 
 ### memory_get_context
+
 - **Purpose**: Get aggregated relevant context including facts, decisions, and active goals
 - **Parameters**: `query` (string, required), `limit` (number, optional, default 5, max 20)
 - **Returns**: Formatted text with relevant memories and active goals
 - **Note**: Primary tool — always called first when user asks about their work
 
 ### memory_extract
+
 - **Purpose**: Auto-extract key facts, decisions, and intentions from conversation
 - **Parameters**: `text` (string, required), `auto_save` (bool, optional)
 - **Returns**: Structured JSON with extracted facts
 - **Note**: Should be called after every meaningful user exchange
 
 ### memory_goal_create
+
 - **Purpose**: Create a new tracked goal
 - **Parameters**: `title` (string, required), `description` (string, optional), `priority` (number, optional, 0-10), `deadline` (string, optional, ISO 8601)
 - **Returns**: Created goal object with auto-generated ID
 
 ### memory_goal_list
+
 - **Purpose**: List user's active goals and their progress
 - **Parameters**: `status` (string, optional — active, completed, archived)
 - **Returns**: JSON array of goals
 
 ### memory_goal_update
+
 - **Purpose**: Update an existing goal (title, description, status, deadline, priority, progress)
 - **Parameters**: `id` (string, required), plus any of `title`, `description`, `status`, `deadline`, `priority`, `progress`
 - **Returns**: Updated goal object
 
 ### memory_timeline
+
 - **Purpose**: Get timeline of events for a date range
 - **Parameters**: `from` (string, optional, ISO 8601), `to` (string, optional), `limit` (number, optional, default 20, max 100)
 - **Returns**: JSON array of timeline entries with event_type, key, summary, created_at
 
 ### memory_suggest
+
 - **Purpose**: Proactive suggestions based on goals, history, and current context
 - **Parameters**: `context` (string, optional), `limit` (number, optional, default 5, max 10)
 - **Returns**: List of suggested next actions ranked by relevance
@@ -187,7 +199,7 @@ Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 Four dynamic MCP resources provide direct access to aggregated state:
 
 | Resource URI | Description |
-|---|---|
+| --- | --- |
 | `memory://goals/active` | List of currently active goals |
 | `memory://awareness` | Aggregated awareness: active goals + today's timeline + recent memories |
 | `memory://context/current` | Aggregated relevant context from memory for the current conversation |
@@ -218,7 +230,7 @@ Four dynamic MCP resources provide direct access to aggregated state:
 ### Subcommands
 
 | Command | Purpose |
-|---|---|
+| --- | --- |
 | `save` | Save a memory with optional auto_key |
 | `get` | Retrieve a memory by key |
 | `delete` | Delete a memory by key |
@@ -242,6 +254,7 @@ Keys are hierarchical, mimicking S3 object storage:
 - `memory/technical/ollama/setup`
 
 Folder semantics:
+
 - Keys ending with `/` are folders
 - `List(prefix)` collapses sub-paths into folder entries
 - Empty prefix `""` lists all top-level entries
@@ -281,7 +294,7 @@ All stored embeddings are fetched and compared in Go. For large collections, SQL
 ## Graceful Degradation
 
 | Component | Available | Behavior |
-|-----------|-----------|----------|
+| ----------- | ----------- | ---------- |
 | Ollama (embed) | ✅ | Full semantic search |
 | Ollama (embed) | ❌ | CRUD tools work; search returns error with helpful message |
 | Ollama (chat) | ✅ | Extract & suggest work |
