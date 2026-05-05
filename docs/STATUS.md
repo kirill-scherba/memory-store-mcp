@@ -24,6 +24,7 @@
 - [x] **Build passes** — `go build -o /tmp/memory-store-mcp-check .` succeeds, server starts with "13 tools and 5 resources"
 - [x] **Fix: chat model no longer falls back to embedding model** — `chatModel()` selects `chatModelOverride` → `LLM_MODEL` → `phi4-mini`, never `ollamaModelOverride`
 - [x] **CLI client** — `cmd/memory-cli/` (10 subcommands, stdio MCP client, proxyStderrWithThinking, auto-binary discovery)
+- [x] **CLI format output** — `-o` flag on goals, timeline, list, search commands supports `json|table|summary` with tabwriter rendering
 
 ### Not Yet Implemented (Phase 3 — future)
 

@@ -691,6 +691,24 @@ Return a JSON array of suggestions. Each suggestion has: type (reminder/followup
 		return nil, fmt.Errorf("LLM suggest failed: %w", err)
 	}
 
+	// Sanitise malformed JSON from LLM.
+	// Common LLM errors:
+	//   "key="value"   -> "key":"value"   (equals opens value quote, e.g. "description="text")
+	//   "key=value"    -> "key":"value"   (equals with plain unquoted value, e.g. "description=text,)
+	// Order matters: full pattern (with closing quote) must come BEFORE partial.
+	sanitiseJSON := func(s string) string {
+		// Pattern 1: "description="text with any chars"  -> "description":"text with any chars"
+		// Must run BEFORE Pattern 2, otherwise Pattern 2 would eat the opening quote.
+		re := regexp.MustCompile(`"(description|title|type|summary)="([^"]*)"`)
+		s = re.ReplaceAllString(s, `"$1":"$2"`)
+		// Pattern 2: "description=plain_value,   -> "description":"plain_value",
+		// Catches: "description=text", "description=text} or "description=text]
+		re = regexp.MustCompile(`"(description|title|type|summary)=([^",}\]]+)`)
+		s = re.ReplaceAllString(s, `"$1":"$2"`)
+		return s
+	}
+	answer = sanitiseJSON(answer)
+
 	// Parse JSON response
 	var suggestions []Suggestion
 	if err := json.Unmarshal([]byte(answer), &suggestions); err != nil {
