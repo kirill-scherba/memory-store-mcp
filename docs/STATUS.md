@@ -28,7 +28,6 @@
 - [ ] **Provider abstraction** — Configurable provider for embedding and chat models (currently hardcoded to local Ollama).
 - [ ] Scheduler/background daemon for proactive push notifications
 - [ ] Web dashboard (Go templates)
-- [ ] go.mod cleanup (remove `replace` directives, publish deps)
 
 ## Known Issues
 
