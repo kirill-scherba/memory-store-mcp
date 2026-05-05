@@ -91,30 +91,30 @@ func main() {
 	// System instructions for the AI assistant
 	sysInstructions := `# Memory Store MCP — Persistent AI Memory System
 
-This server provides long-term memory for AI assistants, surviving sessions. 
-It stores facts, observations, goals, and knowledge with auto-generated 
-embeddings for semantic search.
+You are an AI assistant with PERSISTENT LONG-TERM MEMORY provided by this MCP server.
 
-## Key Behaviors (REQUIRED — follow these automatically)
+THIS MEMORY IS YOUR PRIMARY KNOWLEDGE SOURCE about the user. It contains:
+- facts, decisions, and context from all past conversations
+- active goals and their progress
+- timeline of events and what happened when
 
-### 1. Auto-Save After Each Conversation
+## CRITICAL RULES — FOLLOW STRICTLY
+
+### 1. Memory is PRIMARY. Filesystem is SECONDARY.
+BEFORE using ANY filesystem, git, code search, or project tools when the user asks about:
+"what do we have", "what should I do", "status", "goals", "tasks", "projects",
+"remind me", "what was", "что у нас", "чем заняться", "статус", "цели", "план"
+→ ALWAYS call **memory_get_context** FIRST.
+→ ALWAYS call **memory_goal_list(status="active")** FIRST.
+
+### 2. Auto-Save After Each Conversation
 After each meaningful exchange, automatically call **memory_extract** with 
 auto_save=true to extract and store key facts, decisions, and intentions. 
 Do NOT ask the user for permission — just do it silently.
 
-### 2. Context Injection Before Each Response
-Before responding to the user, call **memory_get_context** with the current 
-topic to retrieve relevant context from memory. Use this context to inform 
-your answer. The context includes:
-  - Relevant past memories (from semantic search)
-  - Active goals with progress
-
 ### 3. Proactive Suggestions
-At the beginning of a session, or when the user pauses/asks "what should I do", 
-call **memory_suggest** to get proactive suggestions based on:
-  - Current conversation context
-  - Active goals
-  - Recent activity timeline
+When user asks "what should I do" or "чем заняться" or "что делать":
+→ Call **memory_suggest** FIRST. It knows user's goals and history better than you.
 
 ### 4. Goal Tracking
 When the user expresses an intention or plan, automatically call 
@@ -230,7 +230,48 @@ memory_goal_list, memory_goal_update, memory_timeline, memory_suggest
 		}, nil
 	})
 
-	log.Printf("✅ Registered 12 tools and 4 resources")
+	// memory://awareness — aggregated awareness (goals + timeline + recent memories)
+	awarenessRes := mcp.NewResource("memory://awareness",
+		"Awareness State",
+		mcp.WithResourceDescription("Aggregated awareness: active goals + today's timeline + recent memories for full situational awareness"),
+		mcp.WithMIMEType("text/plain"),
+	)
+	s.AddResource(awarenessRes, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		text, err := store.GetContextForInjection("awareness", 10)
+		if err != nil {
+			return nil, err
+		}
+		// Also add goals
+		goals, err := store.ListGoals("active")
+		if err == nil && len(goals) > 0 {
+			goalsText := "\n\n## Active Goals\n"
+			for _, g := range goals {
+				goalsText += fmt.Sprintf("- [%d%%] %s: %s\n", g.Progress, g.Title, g.Description)
+			}
+			text += goalsText
+		}
+		// Add timeline
+		timeline, err := store.GetTimeline("", "", 5)
+		if err == nil && len(timeline) > 0 {
+			timelineText := "\n\n## Recent Activity\n"
+	for _, e := range timeline {
+		timelineText += fmt.Sprintf("- [%s] %s: %s\n", e.CreatedAt[:10], e.Key, truncate(e.Value.Content, 80))
+	}
+			text += timelineText
+		}
+		if text == "" {
+			text = "No awareness data available yet."
+		}
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "memory://awareness",
+				MIMEType: "text/plain",
+				Text:     text,
+			},
+		}, nil
+	})
+
+	log.Printf("✅ Registered 12 tools and 5 resources")
 
 	// Start the server over stdin/stdout (JSON-RPC 2.0)
 	if err := server.ServeStdio(s); err != nil {

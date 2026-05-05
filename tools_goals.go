@@ -73,7 +73,9 @@ func memoryGoalCreateTool(s *Storage) server.ServerTool {
 // memoryGoalListTool lists goals filtered by status.
 func memoryGoalListTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_goal_list",
-		mcp.WithDescription("List tracked goals. Filter by status: active, completed, archived, or empty for all."),
+		mcp.WithDescription(`List user's active goals and their progress.
+ALWAYS call this when user asks about status, plans, "what do we have", or before suggesting work.
+Shows what the user is actually trying to achieve.`),
 		mcp.WithString("status",
 			mcp.Description("Filter by status: active, completed, archived, or empty for all"),
 		),

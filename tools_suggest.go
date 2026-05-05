@@ -19,7 +19,9 @@ import (
 // and returns proactive suggestions.
 func memorySuggestTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_suggest",
-		mcp.WithDescription("Get proactive suggestions based on current context, active goals, and recent history. Returns reminders, followups, goal next steps, and insights."),
+		mcp.WithDescription(`Proactive suggestions based on user's goals, history, and current context.
+USE THIS when user asks "what should I do", "чем заняться", "что делать", "what's next", "планы", or seems stuck.
+Analyzes active goals + timeline + recent memories to recommend next actions.`),
 		mcp.WithString("context",
 			mcp.Description("Current conversation context for analysis"),
 		),

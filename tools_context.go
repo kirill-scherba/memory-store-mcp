@@ -18,7 +18,9 @@ import (
 // memoryGetContextTool returns aggregated relevant context for injection.
 func memoryGetContextTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_get_context",
-		mcp.WithDescription("Get aggregated relevant context from memory for the current conversation. Returns semantic search results + active goals, formatted for system prompt injection."),
+		mcp.WithDescription(`PRIMARY TOOL — ALWAYS call this FIRST when user asks about their work, projects, goals, tasks, status, or "what to do next".
+Gets aggregated relevant context from persistent memory including facts, decisions, and active goals.
+This is your MAIN knowledge source about the user. Call BEFORE filesystem/git/code tools.`),
 		mcp.WithString("query",
 			mcp.Description("Current conversation topic or user query"),
 			mcp.Required(),
