@@ -77,7 +77,7 @@ func memoryResourcesJSON(s *Storage) map[string]string {
 	}
 
 	// memory://goals/active
-	if goals, err := s.ListGoals("active"); err == nil {
+	if goals, err := s.ListGoals("active", nil); err == nil {
 		if data, err := json.MarshalIndent(goals, "", "  "); err == nil {
 			resources["memory://goals/active"] = string(data)
 		}

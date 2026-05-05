@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -32,6 +33,9 @@ func memoryGoalCreateTool(s *Storage) server.ServerTool {
 		mcp.WithString("deadline",
 			mcp.Description("Deadline (ISO 8601 or empty)"),
 		),
+		mcp.WithString("labels",
+			mcp.Description(`Labels as JSON array string (["bug","mcp"]) or comma-separated list (bug,mcp)`),
+		),
 	)
 
 	return server.ServerTool{
@@ -41,6 +45,7 @@ func memoryGoalCreateTool(s *Storage) server.ServerTool {
 			title, _ := args["title"].(string)
 			description, _ := args["description"].(string)
 			deadline, _ := args["deadline"].(string)
+			labelsInput, _ := args["labels"].(string)
 
 			priority := 5
 			if v, ok := args["priority"].(float64); ok {
@@ -56,8 +61,12 @@ func memoryGoalCreateTool(s *Storage) server.ServerTool {
 			if title == "" {
 				return mcp.NewToolResultText("Error: title is required"), nil
 			}
+			labels, err := parseGoalLabelsArg(labelsInput)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error parsing labels: %v", err)), nil
+			}
 
-			goal, err := s.CreateGoal(title, description, deadline, priority)
+			goal, err := s.CreateGoal(title, description, deadline, priority, labels)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error creating goal: %v", err)), nil
 			}
@@ -79,6 +88,9 @@ Shows what the user is actually trying to achieve.`),
 		mcp.WithString("status",
 			mcp.Description("Filter by status: active, completed, archived, or empty for all"),
 		),
+		mcp.WithString("labels",
+			mcp.Description(`Filter by labels as JSON array string (["bug","mcp"]) or comma-separated list (bug,mcp)`),
+		),
 	)
 
 	return server.ServerTool{
@@ -86,8 +98,13 @@ Shows what the user is actually trying to achieve.`),
 		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := request.GetArguments()
 			status, _ := args["status"].(string)
+			labelsInput, _ := args["labels"].(string)
+			labels, err := parseGoalLabelsArg(labelsInput)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error parsing labels: %v", err)), nil
+			}
 
-			goals, err := s.ListGoals(status)
+			goals, err := s.ListGoals(status, labels)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error listing goals: %v", err)), nil
 			}
@@ -130,6 +147,9 @@ func memoryGoalUpdateTool(s *Storage) server.ServerTool {
 		mcp.WithNumber("progress",
 			mcp.Description("New progress (0-100, -1 to keep current)"),
 		),
+		mcp.WithString("labels",
+			mcp.Description(`New labels as JSON array string (["bug","mcp"]) or comma-separated list (bug,mcp). Leave omitted to keep current; use [] to clear.`),
+		),
 	)
 
 	return server.ServerTool{
@@ -141,6 +161,7 @@ func memoryGoalUpdateTool(s *Storage) server.ServerTool {
 			description, _ := args["description"].(string)
 			status, _ := args["status"].(string)
 			deadline, _ := args["deadline"].(string)
+			labelsInput, labelsProvided := args["labels"].(string)
 
 			priority := -1
 			if v, ok := args["priority"].(float64); ok {
@@ -155,7 +176,16 @@ func memoryGoalUpdateTool(s *Storage) server.ServerTool {
 				return mcp.NewToolResultText("Error: id is required"), nil
 			}
 
-			goal, err := s.UpdateGoal(id, title, description, status, deadline, priority, progress)
+			var labels []string
+			if labelsProvided {
+				var err error
+				labels, err = parseGoalLabelsArg(labelsInput)
+				if err != nil {
+					return mcp.NewToolResultText(fmt.Sprintf("Error parsing labels: %v", err)), nil
+				}
+			}
+
+			goal, err := s.UpdateGoal(id, title, description, status, deadline, priority, progress, labels)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error updating goal: %v", err)), nil
 			}
@@ -164,6 +194,49 @@ func memoryGoalUpdateTool(s *Storage) server.ServerTool {
 			return mcp.NewToolResultText(fmt.Sprintf("Goal updated:\n%s", string(data))), nil
 		},
 	}
+}
+
+// ─── memory_goal_delete ────────────────────────────────────────────────────────
+
+// memoryGoalDeleteTool deletes an existing goal.
+func memoryGoalDeleteTool(s *Storage) server.ServerTool {
+	opt := mcp.NewTool("memory_goal_delete",
+		mcp.WithDescription("Delete an existing tracked goal by ID. Also removes its mirrored memory entry."),
+		mcp.WithString("id",
+			mcp.Description("Goal ID"),
+			mcp.Required(),
+		),
+	)
+
+	return server.ServerTool{
+		Tool: opt,
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			id, _ := args["id"].(string)
+			if id == "" {
+				return mcp.NewToolResultText("Error: id is required"), nil
+			}
+			if err := s.DeleteGoal(id); err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error deleting goal: %v", err)), nil
+			}
+			return mcp.NewToolResultText(fmt.Sprintf("Deleted goal: %s", id)), nil
+		},
+	}
+}
+
+func parseGoalLabelsArg(input string) ([]string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(input, "[") {
+		var labels []string
+		if err := json.Unmarshal([]byte(input), &labels); err != nil {
+			return nil, err
+		}
+		return normalizeLabels(labels), nil
+	}
+	return normalizeLabels(strings.Split(input, ",")), nil
 }
 
 // ─── memory_timeline ───────────────────────────────────────────────────────────

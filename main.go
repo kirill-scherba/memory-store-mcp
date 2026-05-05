@@ -126,7 +126,7 @@ Keys are hierarchical (S3-style): memory/project/..., memory/user/..., memory/te
 
 Available tools: memory_save, memory_get, memory_delete, memory_search, 
 memory_list, memory_get_context, memory_extract, memory_goal_create, 
-memory_goal_list, memory_goal_update, memory_timeline, memory_suggest
+memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memory_suggest
 
 ## MCP Resources (auto-pulled context)
 - memory://context/current  — aggregated context for current conversation
@@ -173,7 +173,7 @@ memory_goal_list, memory_goal_update, memory_timeline, memory_suggest
 		mcp.WithMIMEType("application/json"),
 	)
 	s.AddResource(goalsRes, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		goals, err := store.ListGoals("active")
+		goals, err := store.ListGoals("active", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -242,7 +242,7 @@ memory_goal_list, memory_goal_update, memory_timeline, memory_suggest
 			return nil, err
 		}
 		// Also add goals
-		goals, err := store.ListGoals("active")
+		goals, err := store.ListGoals("active", nil)
 		if err == nil && len(goals) > 0 {
 			goalsText := "\n\n## Active Goals\n"
 			for _, g := range goals {
@@ -254,9 +254,9 @@ memory_goal_list, memory_goal_update, memory_timeline, memory_suggest
 		timeline, err := store.GetTimeline("", "", 5)
 		if err == nil && len(timeline) > 0 {
 			timelineText := "\n\n## Recent Activity\n"
-	for _, e := range timeline {
-		timelineText += fmt.Sprintf("- [%s] %s: %s\n", e.CreatedAt[:10], e.Key, truncate(e.Value.Content, 80))
-	}
+			for _, e := range timeline {
+				timelineText += fmt.Sprintf("- [%s] %s: %s\n", e.CreatedAt[:10], e.Key, truncate(e.Value.Content, 80))
+			}
 			text += timelineText
 		}
 		if text == "" {
@@ -271,11 +271,10 @@ memory_goal_list, memory_goal_update, memory_timeline, memory_suggest
 		}, nil
 	})
 
-	log.Printf("✅ Registered 12 tools and 5 resources")
+	log.Printf("✅ Registered 13 tools and 5 resources")
 
 	// Start the server over stdin/stdout (JSON-RPC 2.0)
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
-

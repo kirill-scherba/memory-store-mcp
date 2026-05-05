@@ -15,7 +15,7 @@
 │  │    MCP Server Loop   │   │        memory-cli (Go binary)     │   │
 │  │    (ServeStdio)      │   │                                   │   │
 │  │                      │   │  Launch → memory-store-mcp via    │   │
-│  │  12 tools:           │   │  stdin/stdout MCP connection      │   │
+│  │  13 tools:           │   │  stdin/stdout MCP connection      │   │
 │  │  • memory_save       │   │                                   │   │
 │  │  • memory_get        │   │  10 subcommands:                  │   │
 │  │  • memory_delete     │   │  • save / get / delete / search   │   │
@@ -26,10 +26,11 @@
 │  │  • memory_goal_create│              │ (direct connection,       │
 │  │  • memory_goal_list  │              │  no external deps)         │
 │  │  • memory_goal_update│                                           │
+│  │  • memory_goal_delete│                                           │
 │  │  • memory_timeline   │   ┌──────────────────────────────┐       │
 │  │  • memory_suggest    │   │      keyvalembd Library       │       │
 │  │                      │   │  ┌────────────────────────┐  │       │
-│  │  4 resources:        │   │  │  libSQL (libsql-server │  │       │
+│  │  5 resources:        │   │  │  libSQL (libsql-server │  │       │
 │  │  • context/current   │──▶│  │  or SQLite via go-libsql)│  │       │
 │  │  • goals/active      │   │  │  kv_data                │  │       │
 │  │  • timeline/today    │   │  │  kv_embeddings          │  │       │
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS goals (
     title       TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     status      TEXT NOT NULL DEFAULT 'active',
+    labels      TEXT NOT NULL DEFAULT '[]', -- JSON array of strings
     priority    INTEGER NOT NULL DEFAULT 5,
     progress    INTEGER NOT NULL DEFAULT 0,
     deadline    TEXT NOT NULL DEFAULT '',
@@ -108,13 +110,23 @@ CREATE TABLE IF NOT EXISTS timeline_events (
 
 Embedding dimension: 768 (embeddinggemma model).
 
+Tracked goals are also mirrored into `kv_data` under `memory/goals/{status}/{goal_id}` with:
+
+- `content`: goal description
+- `summary`: goal title
+- `tags`: goal labels
+- `source`: `goal-tracker`
+- `status`, `priority`, `goal_id`: copied from the goal row
+
+This mirror gives goals semantic search coverage through the existing `kv_embeddings` flow. Updating a goal rewrites the mirror; changing status moves the key between `active`, `completed`, and `archived`; deleting a goal removes the mirror.
+
 ## Protocol
 
 Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 
 1. **`initialize`** — handshake (server identifies as `memory-store-mcp` v0.1.0)
-2. **`tools/list`** — returns all 12 tool definitions
-3. **`resources/list`** — returns 4 resource definitions
+2. **`tools/list`** — returns all 13 tool definitions
+3. **`resources/list`** — returns 5 resource definitions
 4. **`tools/call`** — executes the requested tool
 5. **`resources/read`** — reads the requested resource
 
@@ -167,20 +179,28 @@ Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 ### memory_goal_create
 
 - **Purpose**: Create a new tracked goal
-- **Parameters**: `title` (string, required), `description` (string, optional), `priority` (number, optional, 0-10), `deadline` (string, optional, ISO 8601)
+- **Parameters**: `title` (string, required), `description` (string, optional), `priority` (number, optional, 0-10), `deadline` (string, optional, ISO 8601), `labels` (string, optional — JSON array or comma-separated list)
 - **Returns**: Created goal object with auto-generated ID
+- **Behavior**: If `description` contains Markdown subtasks like `- [x]` / `- [ ]`, progress is calculated automatically as completed subtasks divided by total subtasks.
 
 ### memory_goal_list
 
 - **Purpose**: List user's active goals and their progress
-- **Parameters**: `status` (string, optional — active, completed, archived)
+- **Parameters**: `status` (string, optional — active, completed, archived), `labels` (string, optional — JSON array or comma-separated list)
 - **Returns**: JSON array of goals
 
 ### memory_goal_update
 
 - **Purpose**: Update an existing goal (title, description, status, deadline, priority, progress)
-- **Parameters**: `id` (string, required), plus any of `title`, `description`, `status`, `deadline`, `priority`, `progress`
+- **Parameters**: `id` (string, required), plus any of `title`, `description`, `status`, `deadline`, `priority`, `progress`, `labels`
 - **Returns**: Updated goal object
+- **Behavior**: If `description` is changed and `progress` is omitted, progress is recalculated from Markdown subtasks when present. Status changes move the mirrored memory key.
+
+### memory_goal_delete
+
+- **Purpose**: Delete an existing tracked goal and its mirrored memory entry
+- **Parameters**: `id` (string, required)
+- **Returns**: Success message
 
 ### memory_timeline
 

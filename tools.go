@@ -27,6 +27,7 @@ func tools(s *Storage) []server.ServerTool {
 		memoryGoalCreateTool(s),
 		memoryGoalListTool(s),
 		memoryGoalUpdateTool(s),
+		memoryGoalDeleteTool(s),
 		memoryTimelineTool(s),
 		memorySuggestTool(s),
 	}

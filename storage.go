@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +17,8 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 
-	_ "github.com/tursodatabase/go-libsql"
 	"github.com/kirill-scherba/keyvalembd"
+	_ "github.com/tursodatabase/go-libsql"
 )
 
 // ---------------------------------------------------------------------------
@@ -39,31 +40,32 @@ type MemoryValue struct {
 
 // Goal represents a tracked goal.
 type Goal struct {
-	ID          string `json:"id"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status"`
-	Priority    int    `json:"priority"`
-	Progress    int    `json:"progress"`
-	Deadline    string `json:"deadline,omitempty"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
+	Status      string   `json:"status"`
+	Priority    int      `json:"priority"`
+	Progress    int      `json:"progress"`
+	Deadline    string   `json:"deadline,omitempty"`
+	CreatedAt   int64    `json:"created_at"`
+	UpdatedAt   int64    `json:"updated_at"`
 }
 
 // ContextResult is the aggregated context returned by GetContext.
 type ContextResult struct {
-	Query      string               `json:"query"`
-	Memories   []ContextMemoryItem  `json:"memories"`
-	Goals      []Goal               `json:"goals,omitempty"`
-	TotalCount int                  `json:"total_count"`
+	Query      string              `json:"query"`
+	Memories   []ContextMemoryItem `json:"memories"`
+	Goals      []Goal              `json:"goals,omitempty"`
+	TotalCount int                 `json:"total_count"`
 }
 
 // ContextMemoryItem is a single memory item in the context result.
 type ContextMemoryItem struct {
-	Key       string       `json:"key"`
-	Value     MemoryValue  `json:"value"`
-	Score     float64      `json:"score,omitempty"`
-	CreatedAt string       `json:"created_at"`
+	Key       string      `json:"key"`
+	Value     MemoryValue `json:"value"`
+	Score     float64     `json:"score,omitempty"`
+	CreatedAt string      `json:"created_at"`
 }
 
 // TimelineEntry represents a single entry in the timeline.
@@ -75,7 +77,7 @@ type TimelineEntry struct {
 
 // Suggestion is a proactive suggestion returned by Suggest.
 type Suggestion struct {
-	Type        string `json:"type"`        // reminder, followup, goal_next_step, insight
+	Type        string `json:"type"` // reminder, followup, goal_next_step, insight
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Priority    int    `json:"priority"`
@@ -119,6 +121,7 @@ func NewStorage(dbPath string) (*Storage, error) {
 			title       TEXT NOT NULL,
 			description TEXT NOT NULL DEFAULT '',
 			status      TEXT NOT NULL DEFAULT 'active',
+			labels      TEXT NOT NULL DEFAULT '[]',
 			priority    INTEGER NOT NULL DEFAULT 5,
 			progress    INTEGER NOT NULL DEFAULT 0,
 			deadline    TEXT NOT NULL DEFAULT '',
@@ -129,6 +132,12 @@ func NewStorage(dbPath string) (*Storage, error) {
 		kv.Close()
 		goalsDB.Close()
 		return nil, fmt.Errorf("create goals table: %w", err)
+	}
+
+	if err := ensureGoalSchema(goalsDB); err != nil {
+		kv.Close()
+		goalsDB.Close()
+		return nil, err
 	}
 
 	log.Printf("✅ storage ready at: %s", dbPath)
@@ -275,7 +284,7 @@ func (s *Storage) GetContext(query string, limit int) (*ContextResult, error) {
 	}
 
 	// Fetch active goals
-	goals, err := s.ListGoals("active")
+	goals, err := s.ListGoals("active", nil)
 	if err == nil && len(goals) > 0 {
 		result.Goals = goals
 	}
@@ -288,33 +297,49 @@ func (s *Storage) GetContext(query string, limit int) (*ContextResult, error) {
 // ---------------------------------------------------------------------------
 
 // CreateGoal creates a new goal and returns its ID.
-func (s *Storage) CreateGoal(title, description, deadline string, priority int) (*Goal, error) {
+func (s *Storage) CreateGoal(title, description, deadline string, priority int, labels []string) (*Goal, error) {
 	id := fmt.Sprintf("goal/%s/%s",
 		time.Now().UTC().Format("2006-01-02"),
 		fmt.Sprintf("%x", md5.Sum([]byte(title)))[:8],
 	)
 	now := time.Now().UTC().Unix()
+	labels = normalizeLabels(labels)
+	labelsJSON, err := json.Marshal(labels)
+	if err != nil {
+		return nil, fmt.Errorf("marshal labels: %w", err)
+	}
+	progress := 0
+	if done, total := countSubtasksFromDescription(description); total > 0 {
+		progress = done * 100 / total
+	}
 
-	_, err := s.goals.Exec(`
-		INSERT INTO goals (id, title, description, status, priority, progress, deadline, created_at, updated_at)
-		VALUES (?, ?, ?, 'active', ?, 0, ?, ?, ?)
-	`, id, title, description, priority, deadline, now, now)
+	_, err = s.goals.Exec(`
+		INSERT INTO goals (id, title, description, status, labels, priority, progress, deadline, created_at, updated_at)
+		VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+	`, id, title, description, string(labelsJSON), priority, progress, deadline, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("create goal: %w", err)
 	}
 
-	return s.GetGoal(id)
+	goal, err := s.GetGoal(id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.syncGoalMemory(goal); err != nil {
+		return nil, err
+	}
+	return goal, nil
 }
 
 // GetGoal retrieves a single goal by ID.
 func (s *Storage) GetGoal(id string) (*Goal, error) {
 	var g Goal
-	var deadline string
+	var labelsJSON, deadline string
 
 	err := s.goals.QueryRow(`
-		SELECT id, title, description, status, priority, progress, deadline, created_at, updated_at
+		SELECT id, title, description, status, labels, priority, progress, deadline, created_at, updated_at
 		FROM goals WHERE id = ?
-	`, id).Scan(&g.ID, &g.Title, &g.Description, &g.Status, &g.Priority, &g.Progress, &deadline, &g.CreatedAt, &g.UpdatedAt)
+	`, id).Scan(&g.ID, &g.Title, &g.Description, &g.Status, &labelsJSON, &g.Priority, &g.Progress, &deadline, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("goal %s not found", id)
@@ -322,27 +347,36 @@ func (s *Storage) GetGoal(id string) (*Goal, error) {
 		return nil, fmt.Errorf("get goal %s: %w", id, err)
 	}
 
+	g.Labels = parseStoredLabels(labelsJSON)
 	g.Deadline = deadline
 
 	return &g, nil
 }
 
-// ListGoals returns goals filtered by status. If status is empty, returns all.
-func (s *Storage) ListGoals(status string) ([]Goal, error) {
-	var rows *sql.Rows
-	var err error
+// ListGoals returns goals filtered by status and labels. If status is empty,
+// returns all statuses. Labels are matched as JSON strings in the labels column.
+func (s *Storage) ListGoals(status string, labelsFilter []string) ([]Goal, error) {
+	query := `
+		SELECT id, title, description, status, labels, priority, progress, deadline, created_at, updated_at
+		FROM goals
+	`
+	var conditions []string
+	var args []interface{}
 
 	if status != "" {
-		rows, err = s.goals.Query(`
-			SELECT id, title, description, status, priority, progress, deadline, created_at, updated_at
-			FROM goals WHERE status = ? ORDER BY priority DESC, created_at DESC
-		`, status)
-	} else {
-		rows, err = s.goals.Query(`
-			SELECT id, title, description, status, priority, progress, deadline, created_at, updated_at
-			FROM goals ORDER BY priority DESC, created_at DESC
-		`)
+		conditions = append(conditions, "status = ?")
+		args = append(args, status)
 	}
+	for _, label := range normalizeLabels(labelsFilter) {
+		conditions = append(conditions, "labels LIKE ?")
+		args = append(args, `%`+strconv.Quote(label)+`%`)
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY priority DESC, created_at DESC"
+
+	rows, err := s.goals.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list goals: %w", err)
 	}
@@ -351,10 +385,11 @@ func (s *Storage) ListGoals(status string) ([]Goal, error) {
 	var goals []Goal
 	for rows.Next() {
 		var g Goal
-		var createdAt, updatedAt, deadline string
-		if err := rows.Scan(&g.ID, &g.Title, &g.Description, &g.Status, &g.Priority, &g.Progress, &deadline, &createdAt, &updatedAt); err != nil {
+		var createdAt, updatedAt, labelsJSON, deadline string
+		if err := rows.Scan(&g.ID, &g.Title, &g.Description, &g.Status, &labelsJSON, &g.Priority, &g.Progress, &deadline, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan goal: %w", err)
 		}
+		g.Labels = parseStoredLabels(labelsJSON)
 		g.Deadline = deadline
 		// Parse as int64 if numeric, otherwise parse as time string -> unix
 		if ct, err := parseIntOrTime(createdAt); err == nil {
@@ -370,7 +405,11 @@ func (s *Storage) ListGoals(status string) ([]Goal, error) {
 }
 
 // UpdateGoal updates an existing goal's fields.
-func (s *Storage) UpdateGoal(id, title, description, status, deadline string, priority, progress int) (*Goal, error) {
+func (s *Storage) UpdateGoal(id, title, description, status, deadline string, priority, progress int, labels []string) (*Goal, error) {
+	if _, err := s.GetGoal(id); err != nil {
+		return nil, err
+	}
+
 	// Build dynamic UPDATE
 	now := time.Now().UTC().Unix()
 	sets := []string{"updated_at = ?"}
@@ -392,6 +431,14 @@ func (s *Storage) UpdateGoal(id, title, description, status, deadline string, pr
 		sets = append(sets, "deadline = ?")
 		args = append(args, deadline)
 	}
+	if labels != nil {
+		labelsJSON, err := json.Marshal(normalizeLabels(labels))
+		if err != nil {
+			return nil, fmt.Errorf("marshal labels: %w", err)
+		}
+		sets = append(sets, "labels = ?")
+		args = append(args, string(labelsJSON))
+	}
 	if priority >= 0 {
 		sets = append(sets, "priority = ?")
 		args = append(args, priority)
@@ -399,6 +446,12 @@ func (s *Storage) UpdateGoal(id, title, description, status, deadline string, pr
 	if progress >= 0 {
 		sets = append(sets, "progress = ?")
 		args = append(args, progress)
+	} else if description != "" {
+		done, total := countSubtasksFromDescription(description)
+		if total > 0 {
+			sets = append(sets, "progress = ?")
+			args = append(args, done*100/total)
+		}
 	}
 
 	args = append(args, id)
@@ -409,7 +462,68 @@ func (s *Storage) UpdateGoal(id, title, description, status, deadline string, pr
 		return nil, fmt.Errorf("update goal %s: %w", id, err)
 	}
 
-	return s.GetGoal(id)
+	goal, err := s.GetGoal(id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.syncGoalMemory(goal); err != nil {
+		return nil, err
+	}
+	return goal, nil
+}
+
+// DeleteGoal deletes a goal and its mirrored memory entry.
+func (s *Storage) DeleteGoal(id string) error {
+	if id == "" {
+		return fmt.Errorf("goal id is required")
+	}
+	result, err := s.goals.Exec(`DELETE FROM goals WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete goal %s: %w", id, err)
+	}
+	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
+		return fmt.Errorf("goal %s not found", id)
+	}
+	return s.deleteGoalMemory(id)
+}
+
+func (s *Storage) syncGoalMemory(goal *Goal) error {
+	if goal == nil {
+		return nil
+	}
+	if err := s.deleteGoalMemory(goal.ID); err != nil {
+		return err
+	}
+
+	status := goal.Status
+	if status == "" {
+		status = "active"
+	}
+	key := "memory/goals/" + status + "/" + goal.ID
+	textForEmbedding := strings.TrimSpace(goal.Title + " " + goal.Description + " " + strings.Join(goal.Labels, " "))
+	value := &MemoryValue{
+		Content:  goal.Description,
+		Summary:  goal.Title,
+		Tags:     goal.Labels,
+		Source:   "goal-tracker",
+		Status:   status,
+		Priority: goal.Priority,
+		GoalID:   goal.ID,
+	}
+	_, err := s.Save(key, value, textForEmbedding, false)
+	if err != nil {
+		return fmt.Errorf("sync goal memory %s: %w", goal.ID, err)
+	}
+	return nil
+}
+
+func (s *Storage) deleteGoalMemory(id string) error {
+	for _, status := range []string{"active", "completed", "archived"} {
+		if err := s.Delete("memory/goals/" + status + "/" + id); err != nil {
+			return fmt.Errorf("delete mirrored goal %s/%s: %w", status, id, err)
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -527,7 +641,7 @@ func (s *Storage) Suggest(currentContext string, limit int) ([]Suggestion, error
 	}
 
 	// Get active goals
-	goals, err := s.ListGoals("active")
+	goals, err := s.ListGoals("active", nil)
 	if err != nil {
 		return nil, fmt.Errorf("list active goals: %w", err)
 	}
@@ -616,6 +730,69 @@ func parseIntOrTime(s string) (int64, error) {
 		return 0, err
 	}
 	return t.Unix(), nil
+}
+
+func ensureGoalSchema(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(goals)`)
+	if err != nil {
+		return fmt.Errorf("read goals schema: %w", err)
+	}
+	defer rows.Close()
+
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return fmt.Errorf("scan goals schema: %w", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate goals schema: %w", err)
+	}
+	if !columns["labels"] {
+		if _, err := db.Exec(`ALTER TABLE goals ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			return fmt.Errorf("add goals.labels column: %w", err)
+		}
+	}
+	return nil
+}
+
+func normalizeLabels(labels []string) []string {
+	seen := make(map[string]bool, len(labels))
+	normalized := make([]string, 0, len(labels))
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		normalized = append(normalized, label)
+	}
+	return normalized
+}
+
+func parseStoredLabels(labelsJSON string) []string {
+	var labels []string
+	if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+		return nil
+	}
+	return normalizeLabels(labels)
+}
+
+func countSubtasksFromDescription(description string) (done, total int) {
+	re := regexp.MustCompile(`(?m)^\s*[-*+]\s+\[([ xX])\]`)
+	for _, match := range re.FindAllStringSubmatch(description, -1) {
+		total++
+		if strings.EqualFold(match[1], "x") {
+			done++
+		}
+	}
+	return done, total
 }
 
 // truncate shortens a string to maxLen runes, appending "…" if truncated.

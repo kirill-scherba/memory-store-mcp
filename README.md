@@ -198,15 +198,15 @@ echo '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"memory_sea
 │              memory-store-mcp (Go)                      │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  12 tools: save, get, delete, search, list,       │   │
+│  │  13 tools: save, get, delete, search, list,       │   │
 │  │  get_context, extract, goal_create, goal_list,   │   │
-│  │  goal_update, timeline, suggest                   │   │
+│  │  goal_update, goal_delete, timeline, suggest      │   │
 │  └──────────────────────┬───────────────────────────┘   │
 │                         │                                │
 │  ┌──────────────────────▼───────────────────────────┐   │
 │  │         Storage Layer (libSQL/SQLite)             │   │
 │  │  • kv_data + kv_embeddings (keyvalembd)           │   │
-│  │  • goals (title, progress, status, priority)      │   │
+│  │  • goals (title, progress, status, labels)        │   │
 │  │  • timeline_events (key, event, created_at)       │   │
 │  │  • Ollama Embedder (embeddinggemma)               │   │
 │  │  • Ollama Chat (for extraction/suggest)           │   │
