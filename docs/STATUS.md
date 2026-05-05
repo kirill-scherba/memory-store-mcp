@@ -1,7 +1,7 @@
 # Status
 
 **Project**: memory-store-mcp — MCP server for persistent AI memory  
-**Last updated**: 2026-05-03  
+**Last updated**: 2026-05-05  
 **Status**: ✅ Alpha — all core features implemented and compiling
 
 ## Current State
@@ -20,11 +20,11 @@
 - [x] **Database schema migration** — `goals` table, `timeline_events` table, columns added to `kv_data` via ALTER TABLE
 - [x] **Build passes** — `go build ./...` succeeds, server starts with "12 tools and 4 resources"
 - [x] **Fix: chat model no longer falls back to embedding model** — `chatModel()` selects `chatModelOverride` → `LLM_MODEL` → `phi4-mini`, never `ollamaModelOverride`
+- [x] **CLI client** — `cmd/memory-cli/` (10 subcommands, stdio MCP client, proxyStderrWithThinking, auto-binary discovery)
 
 ### Not Yet Implemented (Phase 3 — future)
 
 - [ ] **HTTP API** — REST endpoint parallel to MCP stdin/stdout. Would enable external agents and push notifications.
-- [ ] **memory-store-cli** — CLI tool (analogous to `rag-cli` from rag-mcp) for interactive memory inspection and debugging.
 - [ ] **Provider abstraction** — Configurable provider for embedding and chat models (currently hardcoded to local Ollama).
 - [ ] Scheduler/background daemon for proactive push notifications
 - [ ] Web dashboard (Go templates)
