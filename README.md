@@ -120,7 +120,7 @@ Options:
   -h    Show help
 
 Environment variables:
-  TELEGRAM_ALLOWED_USERS  Comma-separated Telegram user IDs (required in Telegram mode)
+  TELEGRAM_ALLOWED_USERS  Optional comma-separated Telegram user IDs for access control
 ```
 
 Note: the embedding model is configured by the `keyvalembd` storage layer. The server exposes chat-model and LLM URL flags for features that call Ollama chat APIs directly.
