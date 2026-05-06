@@ -19,7 +19,6 @@ import (
 // Default LLM model and Ollama settings for extraction and suggestion.
 const (
 	defaultLLMModel = "phi4-mini"
-	defaultEmbeddingModel = "embeddinggemma:latest"
 	ollamaBaseURL   = "http://localhost:11434"
 	generateTimeout = 120 * time.Second
 )
@@ -33,16 +32,16 @@ var ollamaClient = &http.Client{
 	},
 }
 
-// ollamaModelOverride overrides the embedding model when set via --model flag.
-var ollamaModelOverride string
-
 // chatModelOverride overrides the chat model (for extraction/suggest).
 var chatModelOverride string
 
-// setOllamaModel sets the embedding model override.
-func setOllamaModel(m string) {
-	if m != "" {
-		ollamaModelOverride = m
+// llmURLOverride overrides the LLM API base URL when set via --llm-url flag.
+var llmURLOverride string
+
+// setLLMURL sets the LLM base URL override.
+func setLLMURL(u string) {
+	if u != "" {
+		llmURLOverride = u
 	}
 }
 
@@ -59,8 +58,8 @@ type OllamaChatMessage struct {
 	Content string `json:"content"`
 }
 
-// OllamaChatRequest is the request to Ollama /api/chat.
-type OllamaChatRequest struct {
+// LLMChatRequest is the request to Ollama /api/chat.
+type LLMChatRequest struct {
 	Model    string              `json:"model"`
 	Messages []OllamaChatMessage `json:"messages"`
 	Stream   *bool               `json:"stream,omitempty"`
@@ -125,16 +124,28 @@ func chatModel() string {
 	return defaultLLMModel
 }
 
+// llmBaseURL returns the effective LLM base URL, checking override first,
+// then LLM_BASE_URL env, then OLLAMA_BASE_URL env, then default.
+func llmBaseURL() string {
+	if u := llmURLOverride; u != "" {
+		return u
+	}
+	if u := os.Getenv("LLM_BASE_URL"); u != "" {
+		return u
+	}
+	if u := os.Getenv("OLLAMA_BASE_URL"); u != "" {
+		return u
+	}
+	return ollamaBaseURL
+}
+
 // generateAnswer sends a non-streaming chat request to Ollama and returns
 // the generated answer.
 func generateAnswer(messages []OllamaChatMessage) (string, error) {
-	baseURL := os.Getenv("OLLAMA_BASE_URL")
-	if baseURL == "" {
-		baseURL = ollamaBaseURL
-	}
+	baseURL := llmBaseURL()
 
 	// Non-streaming request
-	reqBody := OllamaChatRequest{
+	reqBody := LLMChatRequest{
 		Model:    chatModel(),
 		Messages: messages,
 		Stream:   boolPtr(false),
@@ -167,12 +178,9 @@ func generateAnswer(messages []OllamaChatMessage) (string, error) {
 // generateAnswerStream sends a streaming chat request to Ollama and returns
 // the full answer. Tokens are written to stderr (like in rag-mcp).
 func generateAnswerStream(messages []OllamaChatMessage) (string, error) {
-	baseURL := os.Getenv("OLLAMA_BASE_URL")
-	if baseURL == "" {
-		baseURL = ollamaBaseURL
-	}
+	baseURL := llmBaseURL()
 
-	reqBody := OllamaChatRequest{
+	reqBody := LLMChatRequest{
 		Model:    chatModel(),
 		Messages: messages,
 		Stream:   boolPtr(true),

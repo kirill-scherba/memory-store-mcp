@@ -3,6 +3,7 @@ module github.com/kirill-scherba/memory-store-mcp
 go 1.26.2
 
 require (
+	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/kirill-scherba/keyvalembd v0.0.2
 	github.com/mark3labs/mcp-go v0.49.0
 	github.com/spf13/cobra v0.0.5
@@ -16,7 +17,6 @@ require (
 	github.com/dgraph-io/badger/v3 v3.2103.5 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
 	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect

@@ -35,10 +35,10 @@ func main() {
 	// Command line flags
 	dbPath := flag.String("db", "",
 		"Path to the database (default: ~/.config/memory-store-mcp/memory.db)")
-	model := flag.String("model", defaultEmbeddingModel,
-		"Ollama embedding model (default: embeddinggemma:latest)")
 	chatModel := flag.String("chat-model", defaultLLMModel,
 		"Ollama chat model for extraction/suggest")
+	llmURL := flag.String("llm-url", ollamaBaseURL,
+		"LLM API base URL (default: http://localhost:11434, env: LLM_BASE_URL or OLLAMA_BASE_URL)")
 	telegramToken := flag.String("telegram", "",
 		"Telegram bot token (enables Telegram bot mode)")
 	showHelp := flag.Bool("h", false, "Show help")
@@ -51,22 +51,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment variables:\n")
-		fmt.Fprintf(os.Stderr, "  OLLAMA_BASE_URL     Ollama API URL (default: http://localhost:11434)\n")
-		fmt.Fprintf(os.Stderr, "  EMBEDDING_MODEL     Embedding model (default: embeddinggemma:latest)\n")
+		fmt.Fprintf(os.Stderr, "  LLM_BASE_URL        LLM API URL (default: http://localhost:11434)\n")
 		fmt.Fprintf(os.Stderr, "  LLM_MODEL           Chat model (default: phi4-mini)\n")
 		os.Exit(0)
 	}
-
-	// Set model from flags (env vars take precedence)
-	if m := os.Getenv("EMBEDDING_MODEL"); m != "" {
-		*model = m
-	}
-	setOllamaModel(*model)
 
 	if m := os.Getenv("LLM_MODEL"); m != "" {
 		*chatModel = m
 	}
 	setChatModel(*chatModel)
+
+	// Set LLM URL override (--llm-url flag or LLM_BASE_URL env)
+	setLLMURL(*llmURL)
 
 	// Default db path
 	if *dbPath == "" {
@@ -92,8 +88,8 @@ func main() {
 
 	log.Printf("🚀 Starting memory-store-mcp server")
 	log.Printf("   DB path:        %s", *dbPath)
-	log.Printf("   Embedding model: %s", *model)
-	log.Printf("   Chat model:      %s", *chatModel)
+	log.Printf("   LLM URL:        %s", llmBaseURL())
+	log.Printf("   LLM chat model: %s", *chatModel)
 
 	// System instructions for the AI assistant
 	sysInstructions := `# Memory Store MCP — Persistent AI Memory System
@@ -115,8 +111,8 @@ BEFORE using ANY filesystem, git, code search, or project tools when the user as
 → ALWAYS call **memory_goal_list(status="active")** FIRST.
 
 ### 2. Auto-Save After Each Conversation
-After each meaningful exchange, automatically call **memory_extract** with 
-auto_save=true to extract and store key facts, decisions, and intentions. 
+After each meaningful exchange, automatically call **memory_extract** with
+auto_save=true to extract and store key facts, decisions, and intentions.
 Do NOT ask the user for permission — just do it silently.
 
 ### 3. Proactive Suggestions
@@ -124,15 +120,15 @@ When user asks "what should I do" or "чем заняться" or "что дел
 → Call **memory_suggest** FIRST. It knows user's goals and history better than you.
 
 ### 4. Goal Tracking
-When the user expresses an intention or plan, automatically call 
-**memory_goal_create** to track it. When progress is made, update with 
+When the user expresses an intention or plan, automatically call
+**memory_goal_create** to track it. When progress is made, update with
 **memory_goal_update**. Use **memory_goal_list** to check active goals.
 
 ## Key Format
 Keys are hierarchical (S3-style): memory/project/..., memory/user/..., memory/technical/...
 
-Available tools: memory_save, memory_get, memory_delete, memory_search, 
-memory_list, memory_get_context, memory_extract, memory_goal_create, 
+Available tools: memory_save, memory_get, memory_delete, memory_search,
+memory_list, memory_get_context, memory_extract, memory_goal_create,
 memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memory_suggest
 
 ## MCP Resources (auto-pulled context)
