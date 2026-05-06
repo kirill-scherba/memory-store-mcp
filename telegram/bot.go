@@ -22,7 +22,7 @@ import (
 
 // BotFuncs holds all functional callbacks injected from main.
 type BotFuncs struct {
-	// Save saves a note: title, description, tags, source -> key or error.
+	// SaveNote saves a note and returns the raw memory key.
 	SaveNote func(title, description string, tags []string) (string, error)
 	// CreateGoal creates a goal -> goalID or error.
 	CreateGoal func(title, description string, priority int, labels []string) (string, error)

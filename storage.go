@@ -823,10 +823,10 @@ func truncate(s string, maxLen int) string {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Telegram bridge methods (return JSON strings for the Telegram bot)
+// Telegram bridge methods for the Telegram bot.
 // ───────────────────────────────────────────────────────────────────────────
 
-// SaveFromTelegram saves a note and returns the key as JSON.
+// SaveFromTelegram saves a note and returns the raw memory key.
 func (s *Storage) SaveFromTelegram(title, description string, tags []string) (string, error) {
 	val := &MemoryValue{
 		Content:   description,
@@ -840,7 +840,7 @@ func (s *Storage) SaveFromTelegram(title, description string, tags []string) (st
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(`"key":"%s"`, key), nil
+	return key, nil
 }
 
 // CreateGoalFromTelegram creates a goal and returns it as JSON.
