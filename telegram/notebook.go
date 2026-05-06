@@ -143,7 +143,7 @@ func (b *Bot) handleQuestion(msg *tgbotapi.Message, cls *ClassificationResult, l
 	}
 
 	var sb builder
-	sb.writef(t("question_knowledge_title", lang))
+	sb.writeln(t("question_knowledge_title", lang))
 	for i, mem := range ctx.Memories {
 		summary := mem.Value.Summary
 		if summary == "" {
@@ -194,7 +194,7 @@ func (b *Bot) handleQuestionWithLLM(msg *tgbotapi.Message, cls *ClassificationRe
 		log.Printf("⚠ LLM answer error: %v", err)
 		// Fallback to raw results
 		var sb builder
-		sb.writef(t("question_knowledge_title", lang))
+		sb.writeln(t("question_knowledge_title", lang))
 		for i, mem := range ctx.Memories {
 			summary := mem.Value.Summary
 			if summary == "" {
