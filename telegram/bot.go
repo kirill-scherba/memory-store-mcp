@@ -25,7 +25,7 @@ type BotFuncs struct {
 	// SaveNote saves a note and returns the raw memory key.
 	SaveNote func(title, description string, tags []string) (string, error)
 	// CreateGoal creates a goal -> goalID or error.
-	CreateGoal func(title, description string, priority int, labels []string) (string, error)
+	CreateGoal func(title, description, deadline string, priority int, labels []string) (string, error)
 	// Search does semantic search -> JSON string array of results.
 	Search func(query string, limit int) (string, error)
 	// ListGoals lists goals -> JSON string.
@@ -41,7 +41,7 @@ type BotFuncs struct {
 	// LLMProcess answers a question using the LLM given context. Returns HTML-safe text.
 	LLMProcess func(question string, context string, lang string) (string, error)
 	// UpdateGoal updates a goal. Returns JSON string.
-	UpdateGoal func(id, title, description, status string, priority, progress int, labels []string) (string, error)
+	UpdateGoal func(id, title, description, status, deadline string, priority, progress int, labels []string) (string, error)
 	// DeleteMemory deletes a memory by key.
 	DeleteMemory func(key string) error
 	// LLMRequest sends messages to the LLM and returns the raw text response.

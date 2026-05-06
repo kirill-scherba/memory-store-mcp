@@ -27,26 +27,28 @@ import (
 
 // AgentCommand is a structured command that the LLM can request.
 type AgentCommand struct {
-	Call       string `json:"call"`       // operation name
-	Query      string `json:"query"`      // for search/get_context
-	Title      string `json:"title"`      // for save_note / create_goal / update_goal
-	Text       string `json:"text"`       // for save_note / extract
-	Content    string `json:"content"`    // for save_note (description)
-	Priority   int    `json:"priority"`   // for create_goal / update_goal
-	Progress   int    `json:"progress"`   // for update_goal
-	Status     string `json:"status"`     // for update_goal
-	GoalID     string `json:"goal_id"`    // for update_goal / delete_goal
-	Key        string `json:"key"`        // for memory_get / memory_delete
-	Limit      int    `json:"limit"`      // for search / get_context
-	Labels     string `json:"labels"`     // JSON array string for goals
-	Lang       string `json:"lang"`       // language
-	From       string `json:"from"`       // timeline from
-	To         string `json:"to"`         // timeline to
-	Answer     string `json:"answer"`     // plain text answer to user
+	Call     string `json:"call"`     // operation name
+	Query    string `json:"query"`    // for search/get_context
+	Title    string `json:"title"`    // for save_note / create_goal / update_goal
+	Text     string `json:"text"`     // for save_note / extract
+	Content  string `json:"content"`  // for save_note (description)
+	Priority int    `json:"priority"` // for create_goal / update_goal
+	Progress int    `json:"progress"` // for update_goal
+	Status   string `json:"status"`   // for update_goal
+	GoalID   string `json:"goal_id"`  // for update_goal / delete_goal
+	Key      string `json:"key"`      // for memory_get / memory_delete
+	Limit    int    `json:"limit"`    // for search / get_context
+	Labels   string `json:"labels"`   // JSON array string for goals
+	Deadline string `json:"deadline"` // for create_goal / update_goal
+	Lang     string `json:"lang"`     // language
+	From     string `json:"from"`     // timeline from
+	To       string `json:"to"`       // timeline to
+	Answer   string `json:"answer"`   // plain text answer to user
 }
 
-// buildAgentSystemPrompt builds the system prompt for the LLM agent.
-func buildAgentSystemPrompt(lang string, funcs BotFuncs) string {
+// buildAgentSystemPrompt builds the ONE system prompt for the LLM agent.
+// The agent answers in the same language as the user's question.
+func buildAgentSystemPrompt(funcs BotFuncs) string {
 	// Determine available operations based on what callbacks are set
 	avail := func(name string) string {
 		switch name {
@@ -94,97 +96,74 @@ func buildAgentSystemPrompt(lang string, funcs BotFuncs) string {
 		return "❌ unavailable"
 	}
 
-	prompt := `You are an AI assistant integrated with a long-term memory system. 
-Your purpose is to help the user manage their MEMORY and GOALS.
+	prompt := `You are an AI assistant for a memory and goal management system.
 
-## Core responsibilities:
-1. Answer user questions about stored memories, goals, and timelines.
-2. When the user wants to SAVE something — use save_note.
-3. When the user expresses an intention, task, or project — use create_goal.
-4. When the user wants to UPDATE a goal (change status, progress, priority) — use update_goal.
-5. When the user asks about stored information — use search or get_context.
-6. When the user asks about goals — use list_goals or get_goal.
-7. When the user asks about timeline — use get_timeline.
-8. When the user wants suggestions — use suggest.
-9. When the user asks to delete something — use delete_memory.
-10. When the user asks a general question not requiring storage operations — ANSWER NATURALLY in plain text.
+IMPORTANT: Answer in the SAME LANGUAGE as the user's question. If user writes in Russian — answer in Russian. If in English — answer in English. Etc.
 
-## Available functions:
+CAPABILITIES:
+- Answer questions using context from the user's memory
+- Save notes and facts as memories
+- Create, update, and delete goals
+- Search memories by semantic similarity
+- List goals with their progress
+- Show timeline of events
+- Suggest proactive next actions
+
+RULES:
+- By default answer naturally. NEVER save or create goals unless explicitly asked.
+- When user asks about goals → call list_goals
+- When user wants to remember → call save_note
+- When user wants a new goal → call create_goal
+
+FUNCTIONS:
 `
+	prompt += fmt.Sprintf("  - save_note (%s): save a note\n", avail("save_note"))
+	prompt += fmt.Sprintf("  - create_goal (%s): create a goal\n", avail("create_goal"))
+	prompt += fmt.Sprintf("  - update_goal (%s): update a goal\n", avail("update_goal"))
+	prompt += fmt.Sprintf("  - delete_memory (%s): delete a memory by key\n", avail("delete_memory"))
+	prompt += fmt.Sprintf("  - search (%s): search memories by query\n", avail("search"))
+	prompt += fmt.Sprintf("  - list_goals (%s): list goals (status: active/completed/archived)\n", avail("list_goals"))
+	prompt += fmt.Sprintf("  - get_goal (%s): get a single goal by ID\n", avail("get_goal"))
+	prompt += fmt.Sprintf("  - get_timeline (%s): get timeline of events\n", avail("get_timeline"))
+	prompt += fmt.Sprintf("  - get_context (%s): get relevant context from memory\n", avail("get_context"))
+	prompt += fmt.Sprintf("  - suggest (%s): get proactive suggestions\n", avail("suggest"))
 
-	prompt += fmt.Sprintf("  - save_note (%s): Save a note/memory\n", avail("save_note"))
-	prompt += fmt.Sprintf("  - create_goal (%s): Create a new tracked goal\n", avail("create_goal"))
-	prompt += fmt.Sprintf("  - update_goal (%s): Update goal status/progress/priority\n", avail("update_goal"))
-	prompt += fmt.Sprintf("  - delete_memory (%s): Delete a memory by key\n", avail("delete_memory"))
-	prompt += fmt.Sprintf("  - search (%s): Semantic search across memories\n", avail("search"))
-	prompt += fmt.Sprintf("  - list_goals (%s): List goals by status\n", avail("list_goals"))
-	prompt += fmt.Sprintf("  - get_goal (%s): Get a specific goal by ID\n", avail("get_goal"))
-	prompt += fmt.Sprintf("  - get_timeline (%s): Get timeline of events\n", avail("get_timeline"))
-	prompt += fmt.Sprintf("  - get_context (%s): Get aggregated context\n", avail("get_context"))
-	prompt += fmt.Sprintf("  - suggest (%s): Get proactive suggestions\n", avail("suggest"))
+	prompt += fmt.Sprintf(`RESPOND ONLY WITH RAW JSON%sno markdown, no code fences, no explanations.
 
-	prompt += `
-## Response format:
-You MUST respond with a JSON object. The JSON object can be one of two types:
+WRONG (do NOT do this):
+  %sjson
+  {"call":"","answer":"hello"}
+  %s
+RIGHT (do this):
+  {"call":"","answer":"hello"}
 
-### Type 1: Function call
-When the user wants to perform an operation:
-{
-  "call": "<function_name>",
-  "title": "...",
-  "content": "...",
-  "priority": <number>,
-  "labels": "[\"label1\",\"label2\"]",
-  "query": "...",
-  "limit": <number>,
-  "key": "...",
-  "goal_id": "...",
-  "status": "...",
-  "progress": <number>,
-  "from": "...",
-  "to": "...",
-  "text": "...",
-  "answer": ""
-}
+Function call format (use ONLY when user EXPLICITLY asks):
+  {"call":"save_note","title":"...","content":"...","labels":"[]"}
+  {"call":"create_goal","title":"...","content":"...","priority":5,"labels":"[]","deadline":""}
+  {"call":"list_goals","status":"active","labels":""}
+  {"call":"search","query":"...","limit":10}
+  {"call":"get_timeline","from":"","to":"","limit":10}
+  {"call":"get_context","query":"...","limit":5}
+  {"call":"suggest","query":"...","limit":5}
+  {"call":"update_goal","goal_id":"...","title":"","content":"","status":"","priority":-1,"progress":-1,"labels":""}
+  {"call":"delete_memory","key":"..."}
+  {"call":"get_goal","goal_id":"..."}
 
-### Type 2: Plain text answer
-When the user asks a question or chats:
-{
-  "call": "",
-  "answer": "Your natural language response here..."
-}
+Plain answer (default - use for greetings and most messages):
+  {"call":"","answer":"your response in the user's language here"}
 
-## CRITICAL RULES:
-- If the user says something like "запомни", "сохрани", "save", "remember" → use save_note.
-- If the user expresses an intention like "я буду", "I will", "хочу сделать", "plan to" → use create_goal.
-- If the user asks a question → ANSWER NATURALLY in the "answer" field. Do NOT make up function calls.
-- NEVER make up data. Only use information the user explicitly provides.
-- "priority" is 0-10 (default 5). "progress" is 0-100.
-- "labels" is a JSON array string like "[\"work\",\"project\"]" or empty string.
-- "limit" defaults to 10 if not specified.
-- "status" for goals: "active", "completed", "archived".
-- Respond in the SAME LANGUAGE as the user's message (Russian or English).
-- When the user provides information that should be stored, ALWAYS prefer saving it.
-- When in doubt between answer and function call — prefer function call.
-
-`
-
-	if lang == "ru" {
-		prompt = strings.ReplaceAll(prompt, "You are an AI assistant", "Ты — AI-ассистент")
-		prompt += "\nВАЖНО: Отвечай на РУССКОМ языке. Если пользователь пишет по-русски — отвечай по-русски.\n"
-		prompt += "Если пользователь просто общается, отвечай естественно в поле 'answer'.\n"
-		prompt += "Если пользователь хочет что-то сохранить — используй save_note.\n"
-		prompt += "Если пользователь выражает намерение/план — используй create_goal.\n"
-		prompt += "Если пользователь просит обновить цель — используй update_goal.\n"
-	}
+CRITICAL RULES:
+- When user says hello/hi/privet - ALWAYS answer with a plain greeting, NEVER call a function.
+- NEVER call save_note, create_goal, or any other function unless the user EXPLICITLY asks.
+- Do NOT wrap your JSON response in backticks or markdown. Return raw JSON only.`, " — ", "```", "```")
 
 	return prompt
 }
 
 // processWithLLMAgent sends the user message to the LLM with the system prompt
-// and parses the response into an AgentCommand.
+// and parses the response into an AgentCommand. Logs the full interaction.
 func processWithLLMAgent(userMessage string, lang string, funcs BotFuncs) (*AgentCommand, error) {
-	systemPrompt := buildAgentSystemPrompt(lang, funcs)
+	systemPrompt := buildAgentSystemPrompt(funcs)
 
 	messages := []ChatMessage{
 		{Role: "system", Content: systemPrompt},
@@ -196,51 +175,87 @@ func processWithLLMAgent(userMessage string, lang string, funcs BotFuncs) (*Agen
 		return nil, fmt.Errorf("LLM agent request failed: %w", err)
 	}
 
-	return parseAgentResponse(answer)
+	cmd, parseErr := parseAgentResponse(answer)
+
+	// Log the full interaction: what we sent to LLM and what we got back
+	var parsedDump string
+	if cmd != nil {
+		if cmd.Call != "" {
+			parsedDump = fmt.Sprintf("call=%s title=%q query=%q", cmd.Call, cmd.Title, cmd.Query)
+		} else if cmd.Answer != "" {
+			parsedDump = fmt.Sprintf("answer=%q", truncateText(cmd.Answer, 200))
+		}
+	}
+	LogLLM(systemPrompt, userMessage, answer, parsedDump)
+
+	return cmd, parseErr
 }
 
 // parseAgentResponse parses the LLM JSON response into an AgentCommand.
+// Tries: extract JSON from backtick fences -> direct JSON -> find {...} -> fallback
 func parseAgentResponse(raw string) (*AgentCommand, error) {
 	raw = strings.TrimSpace(raw)
 
-	// Try direct JSON parse first
+	// ── 0. Normalize: replace escaped \n with real newlines first ──
+	normalized := strings.ReplaceAll(raw, "\\n", "\n")
+
+	// ── 1. Extract JSON from backtick fences (```json ... ``` or ``` ... ```) ──
+	var jsonStr string
+	if idx := strings.Index(normalized, "```json"); idx >= 0 {
+		rest := normalized[idx+7:]           // after ```json
+		if end := strings.Index(rest, "```"); end >= 0 {
+			jsonStr = strings.TrimSpace(rest[:end])
+		}
+	} else if idx := strings.Index(normalized, "```"); idx >= 0 {
+		rest := normalized[idx+3:]           // after ```
+		if end := strings.Index(rest, "```"); end >= 0 {
+			jsonStr = strings.TrimSpace(rest[:end])
+		}
+	}
+
+	// Try to parse the extracted JSON
+	if jsonStr != "" {
+		var cmd AgentCommand
+		if err := json.Unmarshal([]byte(jsonStr), &cmd); err == nil {
+			if cmd.Call != "" || cmd.Answer != "" {
+				return &cmd, nil
+			}
+		}
+		// If JSON from fences failed to parse, try brace extraction on it
+		if braceStart := strings.Index(jsonStr, "{"); braceStart >= 0 {
+			if braceEnd := strings.LastIndex(jsonStr, "}"); braceEnd > braceStart {
+				candidate := jsonStr[braceStart : braceEnd+1]
+				if err := json.Unmarshal([]byte(candidate), &cmd); err == nil {
+					if cmd.Call != "" || cmd.Answer != "" {
+						return &cmd, nil
+					}
+				}
+			}
+		}
+	}
+
+	// ── 2. Direct JSON parse on the full normalized string ──
 	var cmd AgentCommand
-	if err := json.Unmarshal([]byte(raw), &cmd); err == nil {
+	if err := json.Unmarshal([]byte(normalized), &cmd); err == nil {
 		if cmd.Call != "" || cmd.Answer != "" {
 			return &cmd, nil
 		}
 	}
 
-	// Try to extract JSON from markdown code blocks or surrounding text
-	cleaned := raw
-	// Check for ```json ... ``` blocks
-	if idx := strings.Index(raw, "```json"); idx >= 0 {
-		start := idx + 7 // skip ```json
-		if end := strings.Index(raw[start:], "```"); end >= 0 {
-			cleaned = strings.TrimSpace(raw[start : start+end])
-		}
-	} else if idx := strings.Index(raw, "```"); idx >= 0 {
-		start := idx + 3
-		if end := strings.Index(raw[start:], "```"); end >= 0 {
-			cleaned = strings.TrimSpace(raw[start : start+end])
+	// ── 3. Find any JSON object { ... } in the full normalized text ──
+	if braceStart := strings.Index(normalized, "{"); braceStart >= 0 {
+		if braceEnd := strings.LastIndex(normalized, "}"); braceEnd > braceStart {
+			candidate := strings.TrimSpace(normalized[braceStart : braceEnd+1])
+			if err := json.Unmarshal([]byte(candidate), &cmd); err == nil {
+				if cmd.Call != "" || cmd.Answer != "" {
+					return &cmd, nil
+				}
+			}
 		}
 	}
 
-	// Try to find JSON object with braces
-	if braceStart := strings.Index(cleaned, "{"); braceStart >= 0 {
-		if braceEnd := strings.LastIndex(cleaned, "}"); braceEnd > braceStart {
-			cleaned = cleaned[braceStart : braceEnd+1]
-		}
-	}
-
-	if err := json.Unmarshal([]byte(cleaned), &cmd); err == nil {
-		if cmd.Call != "" || cmd.Answer != "" {
-			return &cmd, nil
-		}
-	}
-
-	// If all parsing fails, treat the entire response as a plain text answer
-	log.Printf("⚠ LLM agent response not valid JSON, treating as plain answer: %s", truncate(raw, 100))
+	// ── 4. Fallback: treat entire raw response as plain text answer ──
+	Logf("⚠ LLM agent response not valid JSON, treating as plain answer. Raw: %s", truncateText(raw, 200))
 	return &AgentCommand{Answer: raw}, nil
 }
 
@@ -283,7 +298,7 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 			return "Create goal is not available."
 		}
 		labels := parseLabels(cmd.Labels)
-		result, err := funcs.CreateGoal(cmd.Title, cmd.Content, cmd.Priority, labels)
+		result, err := funcs.CreateGoal(cmd.Title, cmd.Content, cmd.Deadline, cmd.Priority, labels)
 		if err != nil {
 			log.Printf("⚠ create_goal error: %v", err)
 			return fmt.Sprintf("❌ Failed to create goal: %v", err)
@@ -305,7 +320,7 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 			return "❌ No goal ID specified. Use /goals to see goals and their IDs."
 		}
 		labels := parseLabels(cmd.Labels)
-		result, err := funcs.UpdateGoal(cmd.GoalID, cmd.Title, cmd.Content, cmd.Status, cmd.Priority, cmd.Progress, labels)
+		result, err := funcs.UpdateGoal(cmd.GoalID, cmd.Title, cmd.Content, cmd.Status, cmd.Deadline, cmd.Priority, cmd.Progress, labels)
 		if err != nil {
 			log.Printf("⚠ update_goal error: %v", err)
 			return fmt.Sprintf("❌ Failed to update goal: %v", err)
@@ -343,10 +358,14 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		if limit <= 0 {
 			limit = 10
 		}
-		results, err := funcs.Search(cmd.Query, limit)
+		resultsJSON, err := funcs.Search(cmd.Query, limit)
 		if err != nil {
 			log.Printf("⚠ search error: %v", err)
 			return fmt.Sprintf("❌ Search failed: %v", err)
+		}
+		var results []SearchResult
+		if err := json.Unmarshal([]byte(resultsJSON), &results); err != nil {
+			return resultsJSON
 		}
 		return formatSearchResults(results, lang)
 
@@ -359,12 +378,16 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		if status == "" {
 			status = "active"
 		}
-		results, err := funcs.ListGoals(status, labels)
+		goalsJSON, err := funcs.ListGoals(status, labels)
 		if err != nil {
 			log.Printf("⚠ list_goals error: %v", err)
 			return fmt.Sprintf("❌ Failed to list goals: %v", err)
 		}
-		return formatGoalsList(results, lang)
+		var goals []Goal
+		if err := json.Unmarshal([]byte(goalsJSON), &goals); err != nil {
+			return goalsJSON
+		}
+		return formatGoalsList(goals, lang)
 
 	case "get_goal":
 		if funcs.GetGoal == nil {
@@ -376,11 +399,15 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 			}
 			return "❌ No goal ID specified."
 		}
-		result, err := funcs.GetGoal(cmd.GoalID)
+		goalJSON, err := funcs.GetGoal(cmd.GoalID)
 		if err != nil {
 			return fmt.Sprintf("❌ %v", err)
 		}
-		return formatGoalDetail(result, lang)
+		var g Goal
+		if err := json.Unmarshal([]byte(goalJSON), &g); err != nil {
+			return goalJSON
+		}
+		return formatGoalDetail(g, lang)
 
 	case "get_timeline":
 		if funcs.GetTimeline == nil {
@@ -390,12 +417,16 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		if limit <= 0 {
 			limit = 10
 		}
-		results, err := funcs.GetTimeline(cmd.From, cmd.To, limit)
+		timelineJSON, err := funcs.GetTimeline(cmd.From, cmd.To, limit)
 		if err != nil {
 			log.Printf("⚠ get_timeline error: %v", err)
 			return fmt.Sprintf("❌ Failed to get timeline: %v", err)
 		}
-		return formatTimelineResults(results, lang)
+		var entries []TimelineEntry
+		if err := json.Unmarshal([]byte(timelineJSON), &entries); err != nil {
+			return timelineJSON
+		}
+		return formatTimelineResults(entries, lang)
 
 	case "get_context":
 		if funcs.GetContext == nil {
@@ -405,12 +436,16 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		if limit <= 0 {
 			limit = 5
 		}
-		result, err := funcs.GetContext(cmd.Query, limit)
+		ctxJSON, err := funcs.GetContext(cmd.Query, limit)
 		if err != nil {
 			log.Printf("⚠ get_context error: %v", err)
 			return fmt.Sprintf("❌ Failed to get context: %v", err)
 		}
-		return formatContextResult(result, lang)
+		var ctx ContextResult
+		if err := json.Unmarshal([]byte(ctxJSON), &ctx); err != nil {
+			return ctxJSON
+		}
+		return formatContextResult(ctx, lang)
 
 	case "suggest":
 		if funcs.Suggest == nil {
@@ -420,12 +455,16 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		if limit <= 0 {
 			limit = 5
 		}
-		results, err := funcs.Suggest(cmd.Query, limit, lang)
+		suggestJSON, err := funcs.Suggest(cmd.Query, limit, lang)
 		if err != nil {
 			log.Printf("⚠ suggest error: %v", err)
 			return fmt.Sprintf("❌ Failed to get suggestions: %v", err)
 		}
-		return formatSuggestions(results, lang)
+		var suggestions []Suggestion
+		if err := json.Unmarshal([]byte(suggestJSON), &suggestions); err != nil {
+			return suggestJSON
+		}
+		return formatSuggestions(suggestions, lang)
 
 	default:
 		if lang == "ru" {
@@ -433,288 +472,6 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		}
 		return fmt.Sprintf("❌ Unknown command: %s", cmd.Call)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Formatters for LLM agent results
-// ---------------------------------------------------------------------------
-
-func formatSearchResults(resultsJSON string, lang string) string {
-	var results []struct {
-		Key   string `json:"key"`
-		Value struct {
-			Content string   `json:"content"`
-			Summary string   `json:"summary"`
-			Tags    []string `json:"tags"`
-		} `json:"value"`
-		Score float64 `json:"score"`
-	}
-	if err := json.Unmarshal([]byte(resultsJSON), &results); err != nil {
-		return resultsJSON
-	}
-	if len(results) == 0 {
-		if lang == "ru" {
-			return "🔍 Ничего не найдено."
-		}
-		return "🔍 Nothing found."
-	}
-
-	var sb strings.Builder
-	if lang == "ru" {
-		sb.WriteString(fmt.Sprintf("🔍 Найдено %d результатов:\n\n", len(results)))
-	} else {
-		sb.WriteString(fmt.Sprintf("🔍 Found %d results:\n\n", len(results)))
-	}
-	for i, r := range results {
-		summary := r.Value.Summary
-		if summary == "" {
-			summary = truncate(r.Value.Content, 80)
-		}
-		sb.WriteString(fmt.Sprintf("%d. <b>%s</b> (%.0f%%)\n", i+1, escapeHTML(summary), r.Score*100))
-		if len(r.Value.Tags) > 0 {
-			sb.WriteString(fmt.Sprintf("   🏷 %s\n", strings.Join(r.Value.Tags, ", ")))
-		}
-		sb.WriteString(fmt.Sprintf("   <code>%s</code>\n", escapeHTML(r.Key)))
-	}
-	return sb.String()
-}
-
-func formatGoalsList(goalsJSON string, lang string) string {
-	var goals []struct {
-		ID          string   `json:"id"`
-		Title       string   `json:"title"`
-		Description string   `json:"description"`
-		Status      string   `json:"status"`
-		Priority    int      `json:"priority"`
-		Progress    int      `json:"progress"`
-		Labels      []string `json:"labels"`
-	}
-	if err := json.Unmarshal([]byte(goalsJSON), &goals); err != nil {
-		return goalsJSON
-	}
-	if len(goals) == 0 {
-		if lang == "ru" {
-			return "📋 Нет целей."
-		}
-		return "📋 No goals."
-	}
-
-	var sb strings.Builder
-	if lang == "ru" {
-		sb.WriteString(fmt.Sprintf("📋 <b>Цели (%d):</b>\n\n", len(goals)))
-	} else {
-		sb.WriteString(fmt.Sprintf("📋 <b>Goals (%d):</b>\n\n", len(goals)))
-	}
-	for _, g := range goals {
-		statusEmoji := "⏳"
-		if g.Status == "completed" {
-			statusEmoji = "✅"
-		} else if g.Status == "archived" {
-			statusEmoji = "📦"
-		}
-		sb.WriteString(fmt.Sprintf("%s <b>%s</b> [%d%%] (p%d)\n", statusEmoji, escapeHTML(g.Title), g.Progress, g.Priority))
-		if g.Description != "" {
-			sb.WriteString(fmt.Sprintf("   %s\n", escapeHTML(truncate(g.Description, 100))))
-		}
-		if len(g.Labels) > 0 {
-			sb.WriteString(fmt.Sprintf("   🏷 %s\n", strings.Join(g.Labels, ", ")))
-		}
-		sb.WriteString(fmt.Sprintf("   <code>%s</code>\n", escapeHTML(g.ID)))
-	}
-	return sb.String()
-}
-
-func formatGoalDetail(goalJSON string, lang string) string {
-	var goal struct {
-		ID          string   `json:"id"`
-		Title       string   `json:"title"`
-		Description string   `json:"description"`
-		Status      string   `json:"status"`
-		Priority    int      `json:"priority"`
-		Progress    int      `json:"progress"`
-		Deadline    string   `json:"deadline"`
-		Labels      []string `json:"labels"`
-	}
-	if err := json.Unmarshal([]byte(goalJSON), &goal); err != nil {
-		return goalJSON
-	}
-
-	statusEmoji := "⏳"
-	statusText := "active"
-	if goal.Status == "completed" {
-		statusEmoji = "✅"
-		statusText = "completed"
-	} else if goal.Status == "archived" {
-		statusEmoji = "📦"
-		statusText = "archived"
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s <b>%s</b>\n", statusEmoji, escapeHTML(goal.Title)))
-	sb.WriteString(fmt.Sprintf("📊 Progress: %d%%\n", goal.Progress))
-	sb.WriteString(fmt.Sprintf("📌 Priority: %d\n", goal.Priority))
-	sb.WriteString(fmt.Sprintf("📋 Status: %s\n", statusText))
-	if goal.Description != "" {
-		sb.WriteString(fmt.Sprintf("\n%s\n", escapeHTML(goal.Description)))
-	}
-	if goal.Deadline != "" {
-		sb.WriteString(fmt.Sprintf("\n📅 Deadline: %s\n", goal.Deadline))
-	}
-	if len(goal.Labels) > 0 {
-		sb.WriteString(fmt.Sprintf("🏷 %s\n", strings.Join(goal.Labels, ", ")))
-	}
-	sb.WriteString(fmt.Sprintf("\n<code>%s</code>", escapeHTML(goal.ID)))
-	return sb.String()
-}
-
-func formatTimelineResults(timelineJSON string, lang string) string {
-	var entries []struct {
-		Key   string `json:"key"`
-		Value struct {
-			Content string `json:"content"`
-			Summary string `json:"summary"`
-		} `json:"value"`
-		CreatedAt string `json:"created_at"`
-	}
-	if err := json.Unmarshal([]byte(timelineJSON), &entries); err != nil {
-		return timelineJSON
-	}
-	if len(entries) == 0 {
-		if lang == "ru" {
-			return "📅 Нет событий."
-		}
-		return "📅 No events."
-	}
-
-	var sb strings.Builder
-	if lang == "ru" {
-		sb.WriteString(fmt.Sprintf("📅 <b>События (%d):</b>\n\n", len(entries)))
-	} else {
-		sb.WriteString(fmt.Sprintf("📅 <b>Events (%d):</b>\n\n", len(entries)))
-	}
-	for _, e := range entries {
-		summary := e.Value.Summary
-		if summary == "" {
-			summary = truncate(e.Value.Content, 80)
-		}
-		date := e.CreatedAt
-		if len(date) > 10 {
-			date = date[:10]
-		}
-		sb.WriteString(fmt.Sprintf("• [%s] <b>%s</b>\n", date, escapeHTML(summary)))
-		sb.WriteString(fmt.Sprintf("  <code>%s</code>\n", escapeHTML(e.Key)))
-	}
-	return sb.String()
-}
-
-func formatContextResult(ctxJSON string, lang string) string {
-	var ctx struct {
-		Query      string `json:"query"`
-		TotalCount int    `json:"total_count"`
-		Memories   []struct {
-			Key   string `json:"key"`
-			Value struct {
-				Content string `json:"content"`
-				Summary string `json:"summary"`
-			} `json:"value"`
-			Score float64 `json:"score"`
-		} `json:"memories"`
-		Goals []struct {
-			Title    string `json:"title"`
-			Progress int    `json:"progress"`
-			Status   string `json:"status"`
-		} `json:"goals"`
-	}
-	if err := json.Unmarshal([]byte(ctxJSON), &ctx); err != nil {
-		return ctxJSON
-	}
-
-	var sb strings.Builder
-	if lang == "ru" {
-		sb.WriteString(fmt.Sprintf("📊 <b>Контекст:</b> %s\n\n", escapeHTML(ctx.Query)))
-	} else {
-		sb.WriteString(fmt.Sprintf("📊 <b>Context:</b> %s\n\n", escapeHTML(ctx.Query)))
-	}
-
-	if len(ctx.Goals) > 0 {
-		if lang == "ru" {
-			sb.WriteString("<b>Активные цели:</b>\n")
-		} else {
-			sb.WriteString("<b>Active goals:</b>\n")
-		}
-		for _, g := range ctx.Goals {
-			sb.WriteString(fmt.Sprintf("  • %s [%d%%]\n", escapeHTML(g.Title), g.Progress))
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(ctx.Memories) > 0 {
-		if lang == "ru" {
-			sb.WriteString(fmt.Sprintf("<b>Память (%d):</b>\n", len(ctx.Memories)))
-		} else {
-			sb.WriteString(fmt.Sprintf("<b>Memories (%d):</b>\n", len(ctx.Memories)))
-		}
-		for _, m := range ctx.Memories {
-			summary := m.Value.Summary
-			if summary == "" {
-				summary = truncate(m.Value.Content, 80)
-			}
-			sb.WriteString(fmt.Sprintf("  • %s (%.0f%%)\n", escapeHTML(summary), m.Score*100))
-		}
-	}
-
-	if ctx.TotalCount == 0 && len(ctx.Goals) == 0 {
-		if lang == "ru" {
-			sb.WriteString("Нет данных в памяти.\n")
-		} else {
-			sb.WriteString("No data in memory.\n")
-		}
-	}
-
-	return sb.String()
-}
-
-func formatSuggestions(suggestJSON string, lang string) string {
-	var suggestions []struct {
-		Type        string `json:"type"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Priority    int    `json:"priority"`
-	}
-	if err := json.Unmarshal([]byte(suggestJSON), &suggestions); err != nil {
-		return suggestJSON
-	}
-	if len(suggestions) == 0 {
-		if lang == "ru" {
-			return "💡 Нет предложений."
-		}
-		return "💡 No suggestions."
-	}
-
-	var sb strings.Builder
-	if lang == "ru" {
-		sb.WriteString("💡 <b>Предложения:</b>\n\n")
-	} else {
-		sb.WriteString("💡 <b>Suggestions:</b>\n\n")
-	}
-	for _, s := range suggestions {
-		typeEmoji := "💭"
-		switch s.Type {
-		case "reminder":
-			typeEmoji = "⏰"
-		case "followup":
-			typeEmoji = "🔄"
-		case "goal_next_step":
-			typeEmoji = "🎯"
-		case "insight":
-			typeEmoji = "💡"
-		}
-		sb.WriteString(fmt.Sprintf("%s <b>%s</b> (p%d)\n", typeEmoji, escapeHTML(s.Title), s.Priority))
-		if s.Description != "" {
-			sb.WriteString(fmt.Sprintf("   %s\n", escapeHTML(s.Description)))
-		}
-	}
-	return sb.String()
 }
 
 // ---------------------------------------------------------------------------
@@ -740,11 +497,3 @@ func parseLabels(labelsJSON string) []string {
 	return labels
 }
 
-// truncate shortens a string to maxLen runes, appending "…" if truncated.
-func truncate(s string, maxLen int) string {
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen]) + "…"
-}

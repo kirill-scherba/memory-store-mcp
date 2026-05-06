@@ -844,13 +844,28 @@ func (s *Storage) SaveFromTelegram(title, description string, tags []string) (st
 }
 
 // CreateGoalFromTelegram creates a goal and returns it as JSON.
-func (s *Storage) CreateGoalFromTelegram(title, description string, priority int, labels []string) (string, error) {
-	goal, err := s.CreateGoal(title, description, "", priority, labels)
+func (s *Storage) CreateGoalFromTelegram(title, description, deadline string, priority int, labels []string) (string, error) {
+	goal, err := s.CreateGoal(title, description, deadline, priority, labels)
 	if err != nil {
 		return "", err
 	}
 	data, _ := json.Marshal(goal)
 	return string(data), nil
+}
+
+// UpdateGoalFromTelegram updates a goal and returns it as JSON.
+func (s *Storage) UpdateGoalFromTelegram(id, title, description, status, deadline string, priority, progress int, labels []string) (string, error) {
+	goal, err := s.UpdateGoal(id, title, description, status, deadline, priority, progress, labels)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(goal)
+	return string(data), nil
+}
+
+// DeleteMemoryFromTelegram deletes a memory by key.
+func (s *Storage) DeleteMemoryFromTelegram(key string) error {
+	return s.Delete(key)
 }
 
 // SearchFromTelegram searches and returns results as JSON array string.

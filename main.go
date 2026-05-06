@@ -274,6 +274,14 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 
 	// ── Telegram Bot (optional) ──────────────────────────────────────────
 	if *telegramToken != "" {
+		// Initialize file logger for Telegram bot
+		logPath := filepath.Join(dir, "telegram.log")
+		if err := telegram.InitBotLogger(logPath, 10*1024*1024, 3); err != nil {
+			log.Printf("⚠ Failed to initialize bot logger: %v", err)
+		} else {
+			defer telegram.LogClose()
+		}
+
 		token := *telegramToken
 
 		// Parse allowed users from TELEGRAM_ALLOWED_USERS (comma-separated IDs)
@@ -295,9 +303,23 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 			log.Printf("🔒 Telegram access restricted to %d allowed user(s)", len(allowedUsers))
 		}
 
+		// LLMRequest wrapper that converts telegram.ChatMessage to OllamaChatMessage
+		llmRequestFn := func(systemPrompt string, messages []telegram.ChatMessage) (string, error) {
+			ollamaMessages := make([]OllamaChatMessage, 0, len(messages)+1)
+			// System prompt goes first
+			ollamaMessages = append(ollamaMessages, OllamaChatMessage{Role: "system", Content: systemPrompt})
+			// Convert user/assistant messages
+			for _, msg := range messages {
+				ollamaMessages = append(ollamaMessages, OllamaChatMessage{Role: msg.Role, Content: msg.Content})
+			}
+			return generateAnswer(ollamaMessages)
+		}
+
 		telegramFuncs := telegram.BotFuncs{
 			SaveNote:    store.SaveFromTelegram,
 			CreateGoal:  store.CreateGoalFromTelegram,
+			UpdateGoal:  store.UpdateGoalFromTelegram,
+			DeleteMemory: store.DeleteMemoryFromTelegram,
 			Search:      store.SearchFromTelegram,
 			ListGoals:   store.ListGoalsFromTelegram,
 			GetGoal:     store.GetGoalFromTelegram,
@@ -305,6 +327,7 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 			Suggest:     store.SuggestFromTelegram,
 			GetContext:  store.GetContextFromTelegram,
 			LLMProcess:  store.LLMQuestionProcess,
+			LLMRequest:  llmRequestFn,
 		}
 
 		bot, err := telegram.NewBot(token, telegramFuncs, allowedUsers)

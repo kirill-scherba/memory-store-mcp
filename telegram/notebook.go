@@ -54,7 +54,7 @@ func (b *Bot) handleNote(msg *tgbotapi.Message, cls *ClassificationResult, lang 
 
 // handleGoal creates a goal from a user message.
 func (b *Bot) handleGoal(msg *tgbotapi.Message, cls *ClassificationResult, lang string) {
-	goalID, err := b.funcs.CreateGoal(cls.Title, cls.Description, cls.Priority, cls.Labels)
+	goalID, err := b.funcs.CreateGoal(cls.Title, cls.Description, "", cls.Priority, cls.Labels)
 	if err != nil {
 		log.Printf("⚠ Error creating goal: %v", err)
 		b.sendText(msg.Chat.ID, t("goal_create_error", lang))
