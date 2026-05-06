@@ -12,8 +12,10 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// handleText processes a non-command text message using the notebook mode
-// (classify → save as note/goal, execute command, or answer as question).
+// handleText processes a non-command text message using the LLM agent.
+// The agent understands user intent, decides on actions (note, goal, question, etc.),
+// and returns structured JSON actions that are dispatched automatically.
+// Falls back to the old classifier if LLM is unavailable.
 func (b *Bot) handleText(msg *tgbotapi.Message) {
 	text := msg.Text
 	if text == "" {
@@ -22,22 +24,14 @@ func (b *Bot) handleText(msg *tgbotapi.Message) {
 
 	lang := b.getLang(msg.Chat.ID)
 
-	// 1. Classify the message
-	result := classifyMessage(text)
-	log.Printf("📝 Classified message as: %s (title: %q)", result.Type, result.Title)
-
-	switch result.Type {
-	case "note":
-		b.handleNote(msg, result, lang)
-	case "goal":
-		b.handleGoal(msg, result, lang)
-	case "command":
-		b.handleCommandRequest(msg, result, lang)
-	case "question":
-		b.handleQuestion(msg, result, lang)
-	default:
-		b.sendText(msg.Chat.ID, t("default_message", lang))
+	// ── Try LLM agent first ──────────────────────────────────────
+	if b.funcs.LLMRequest != nil {
+		b.handleTextWithAgent(text, msg.Chat.ID, lang)
+		return
 	}
+
+	// ── Fallback: old classifier (notebook mode) ────────────────
+	b.handleTextClassifierFallback(msg, lang)
 }
 
 // handleNote saves a text message as a memory note.
@@ -227,6 +221,108 @@ func (b *builder) writef(format string, args ...interface{}) {
 
 func (b *builder) String() string {
 	return b.data
+}
+
+// ---------------------------------------------------------------------------
+// LLM Agent handler
+// ---------------------------------------------------------------------------
+
+// handleTextWithAgent sends the user text to the LLM agent using the
+// full agent implementation from agent.go (buildAgentSystemPrompt,
+// processWithLLMAgent, dispatchAgentCommand). The agent is a full
+// assistant: it answers questions, saves notes, creates/updates goals,
+// searches, lists goals/timeline, suggests, and deletes memories.
+func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) {
+	// Send typing action to show we're working
+	b.sendChatAction(chatID)
+
+	// 1. Get context for the agent (relevant memories + goals)
+	contextStr := ""
+	if b.funcs.GetContext != nil {
+		jsonStr, err := b.funcs.GetContext(text, 5)
+		if err == nil {
+			var ctx ContextResult
+			if err := json.Unmarshal([]byte(jsonStr), &ctx); err == nil {
+				// Build a compact context string for the agent
+				if len(ctx.Goals) > 0 {
+					contextStr += "Active goals:\n"
+					for _, g := range ctx.Goals {
+						contextStr += fmt.Sprintf("- [%d%%] %s: %s\n", g.Progress, g.Title, g.Description)
+					}
+				}
+				if len(ctx.Memories) > 0 {
+					contextStr += "\nRecent memories:\n"
+					for i, mem := range ctx.Memories {
+						if i >= 3 {
+							break
+						}
+						summary := mem.Value.Summary
+						if summary == "" {
+							summary = truncateText(mem.Value.Content, 100)
+						}
+						contextStr += fmt.Sprintf("- %s\n", summary)
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Build user message with context
+	userMessage := text
+	if contextStr != "" {
+		userMessage += "\n\nCurrent context:\n" + contextStr
+	}
+
+	// 3. Call the full LLM agent from agent.go
+	cmd, err := processWithLLMAgent(userMessage, lang, b.funcs)
+	if err != nil {
+		log.Printf("⚠ LLM agent error: %v — falling back to classifier", err)
+		synthMsg := &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: chatID},
+			Text: text,
+		}
+		b.handleTextClassifierFallback(synthMsg, lang)
+		return
+	}
+
+	// 4. Dispatch the command
+	result := dispatchAgentCommand(cmd, b.funcs, lang)
+	if result != "" {
+		b.sendText(chatID, result)
+	}
+}
+
+// handleTextClassifierFallback is the old classifier-based handler, kept as
+// a fallback when the LLM agent is unavailable.
+func (b *Bot) handleTextClassifierFallback(msg *tgbotapi.Message, lang string) {
+	text := msg.Text
+	if text == "" {
+		return
+	}
+
+	result := classifyMessage(text)
+	log.Printf("📝 Classified message as: %s (title: %q)", result.Type, result.Title)
+
+	switch result.Type {
+	case "note":
+		b.handleNote(msg, result, lang)
+	case "goal":
+		b.handleGoal(msg, result, lang)
+	case "command":
+		b.handleCommandRequest(msg, result, lang)
+	case "question":
+		b.handleQuestion(msg, result, lang)
+	default:
+		b.sendText(msg.Chat.ID, t("default_message", lang))
+	}
+}
+
+// sendChatAction sends a "typing" action to the chat.
+func (b *Bot) sendChatAction(chatID int64) {
+	action := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
+	if _, err := b.api.Request(action); err != nil {
+		log.Printf("⚠ sendChatAction error: %v", err)
+	}
 }
 
 // Note: escapeHTML, formatLabels, truncateText are defined in assistant.go

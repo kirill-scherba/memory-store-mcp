@@ -40,6 +40,12 @@ type BotFuncs struct {
 	GetContext func(query string, limit int) (string, error)
 	// LLMProcess answers a question using the LLM given context. Returns HTML-safe text.
 	LLMProcess func(question string, context string, lang string) (string, error)
+	// UpdateGoal updates a goal. Returns JSON string.
+	UpdateGoal func(id, title, description, status string, priority, progress int, labels []string) (string, error)
+	// DeleteMemory deletes a memory by key.
+	DeleteMemory func(key string) error
+	// LLMRequest sends messages to the LLM and returns the raw text response.
+	LLMRequest LLMRequester
 }
 
 // Bot wraps the Telegram bot API and links to the memory store via functions.
