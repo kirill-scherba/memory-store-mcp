@@ -113,27 +113,18 @@ func parseOllamaResponse(data []byte) (string, error) {
 }
 
 // chatModel returns the effective chat model to use, selecting from
-// override -> env -> default.
+// override -> default.
 func chatModel() string {
 	if m := chatModelOverride; m != "" {
-		return m
-	}
-	if m := os.Getenv("LLM_MODEL"); m != "" {
 		return m
 	}
 	return defaultLLMModel
 }
 
 // llmBaseURL returns the effective LLM base URL, checking override first,
-// then LLM_BASE_URL env, then OLLAMA_BASE_URL env, then default.
+// then default.
 func llmBaseURL() string {
 	if u := llmURLOverride; u != "" {
-		return u
-	}
-	if u := os.Getenv("LLM_BASE_URL"); u != "" {
-		return u
-	}
-	if u := os.Getenv("OLLAMA_BASE_URL"); u != "" {
 		return u
 	}
 	return ollamaBaseURL

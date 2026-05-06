@@ -38,7 +38,7 @@ func main() {
 	chatModel := flag.String("chat-model", defaultLLMModel,
 		"Ollama chat model for extraction/suggest")
 	llmURL := flag.String("llm-url", ollamaBaseURL,
-		"LLM API base URL (default: http://localhost:11434, env: LLM_BASE_URL or OLLAMA_BASE_URL)")
+		"LLM API base URL (default: http://localhost:11434)")
 	telegramToken := flag.String("telegram", "",
 		"Telegram bot token (enables Telegram bot mode)")
 	showHelp := flag.Bool("h", false, "Show help")
@@ -51,17 +51,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment variables:\n")
-		fmt.Fprintf(os.Stderr, "  LLM_BASE_URL        LLM API URL (default: http://localhost:11434)\n")
-		fmt.Fprintf(os.Stderr, "  LLM_MODEL           Chat model (default: phi4-mini)\n")
+		fmt.Fprintf(os.Stderr, "  TELEGRAM_ALLOWED_USERS  Comma-separated Telegram user IDs (required in Telegram mode)\n")
 		os.Exit(0)
 	}
 
-	if m := os.Getenv("LLM_MODEL"); m != "" {
-		*chatModel = m
-	}
 	setChatModel(*chatModel)
 
-	// Set LLM URL override (--llm-url flag or LLM_BASE_URL env)
+	// Set LLM URL override (--llm-url flag)
 	setLLMURL(*llmURL)
 
 	// Default db path
@@ -278,52 +274,45 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 
 	// ── Telegram Bot (optional) ──────────────────────────────────────────
 	if *telegramToken != "" {
-		// Get token from env if flag is set but empty
 		token := *telegramToken
-		if token == "" {
-			token = os.Getenv("TELEGRAM_BOT_TOKEN")
-		}
-		if token != "" {
-			// Parse allowed users from TELEGRAM_ALLOWED_USERS (comma-separated IDs)
-			var allowedUsers map[int64]bool
-			if au := os.Getenv("TELEGRAM_ALLOWED_USERS"); au != "" {
-				allowedUsers = make(map[int64]bool)
-				for _, part := range strings.Split(au, ",") {
-					part = strings.TrimSpace(part)
-					if part == "" {
-						continue
-					}
-					var id int64
-					if _, err := fmt.Sscanf(part, "%d", &id); err == nil {
-						allowedUsers[id] = true
-					} else {
-						log.Printf("⚠ Invalid user ID in TELEGRAM_ALLOWED_USERS: %q", part)
-					}
+
+		// Parse allowed users from TELEGRAM_ALLOWED_USERS (comma-separated IDs)
+		var allowedUsers map[int64]bool
+		if au := os.Getenv("TELEGRAM_ALLOWED_USERS"); au != "" {
+			allowedUsers = make(map[int64]bool)
+			for _, part := range strings.Split(au, ",") {
+				part = strings.TrimSpace(part)
+				if part == "" {
+					continue
 				}
-				log.Printf("🔒 Telegram access restricted to %d allowed user(s)", len(allowedUsers))
+				var id int64
+				if _, err := fmt.Sscanf(part, "%d", &id); err == nil {
+					allowedUsers[id] = true
+				} else {
+					log.Printf("⚠ Invalid user ID in TELEGRAM_ALLOWED_USERS: %q", part)
+				}
 			}
+			log.Printf("🔒 Telegram access restricted to %d allowed user(s)", len(allowedUsers))
+		}
 
-			telegramFuncs := telegram.BotFuncs{
-				SaveNote:    store.SaveFromTelegram,
-				CreateGoal:  store.CreateGoalFromTelegram,
-				Search:      store.SearchFromTelegram,
-				ListGoals:   store.ListGoalsFromTelegram,
-				GetGoal:     store.GetGoalFromTelegram,
-				GetTimeline: store.GetTimelineFromTelegram,
-				Suggest:     store.SuggestFromTelegram,
-				GetContext:  store.GetContextFromTelegram,
-				LLMProcess:  store.LLMQuestionProcess,
-			}
+		telegramFuncs := telegram.BotFuncs{
+			SaveNote:    store.SaveFromTelegram,
+			CreateGoal:  store.CreateGoalFromTelegram,
+			Search:      store.SearchFromTelegram,
+			ListGoals:   store.ListGoalsFromTelegram,
+			GetGoal:     store.GetGoalFromTelegram,
+			GetTimeline: store.GetTimelineFromTelegram,
+			Suggest:     store.SuggestFromTelegram,
+			GetContext:  store.GetContextFromTelegram,
+			LLMProcess:  store.LLMQuestionProcess,
+		}
 
-			bot, err := telegram.NewBot(token, telegramFuncs, allowedUsers)
-			if err != nil {
-				log.Printf("⚠ Failed to start Telegram bot: %v", err)
-				log.Printf("   Ignore — continuing with MCP server only")
-			} else {
-				go bot.Run()
-			}
+		bot, err := telegram.NewBot(token, telegramFuncs, allowedUsers)
+		if err != nil {
+			log.Printf("⚠ Failed to start Telegram bot: %v", err)
+			log.Printf("   Ignore — continuing with MCP server only")
 		} else {
-			log.Printf("⚠ --telegram flag set but no token found. Set TELEGRAM_BOT_TOKEN env var.")
+			go bot.Run()
 		}
 	}
 
