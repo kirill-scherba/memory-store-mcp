@@ -50,7 +50,7 @@ Analyzes active goals + timeline + recent memories to recommend next actions.`),
 				limit = 5
 			}
 
-			suggestions, err := s.Suggest(currentContext, limit)
+			suggestions, err := s.Suggest(currentContext, limit, "en")
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error generating suggestions: %v", err)), nil
 			}

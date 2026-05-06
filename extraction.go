@@ -75,16 +75,27 @@ func ExtractFacts(text string) ([]ExtractedFact, error) {
 // ---------------------------------------------------------------------------
 
 // suggestSystemPrompt returns the system prompt for the suggestion LLM call.
-func suggestSystemPrompt() string {
-	return `You are a proactive assistant that analyses context and goals to suggest next steps.
+// The lang parameter controls the output language ("ru" for Russian, "en" for English).
+func suggestSystemPrompt(lang string) string {
+	langInstruction := map[string]string{
+		"ru": "Generate all titles and descriptions in Russian language.",
+		"en": "Generate all titles and descriptions in English language.",
+	}
+	instruction := langInstruction["ru"]
+	if lang == "en" {
+		instruction = langInstruction["en"]
+	}
+	return fmt.Sprintf(`You are a proactive assistant that analyses context and goals to suggest next steps.
 Return ONLY a JSON array of suggestion objects. Each suggestion has:
 - type: one of "reminder", "followup", "goal_next_step", "insight"
 - title: short title (max 60 chars)
 - description: brief description (max 200 chars)
 - priority: integer 0-10
 
+IMPORTANT: %s
+
 Example:
-[{"type":"goal_next_step","title":"Setup CI/CD pipeline","description":"You discussed setting up CI/CD for Cooksy. A good next step would be to define the deployment workflow.","priority":8}]`
+[{"type":"goal_next_step","title":"Setup CI/CD pipeline","description":"You discussed setting up CI/CD for Cooksy. A good next step would be to define the deployment workflow.","priority":8}]`, instruction)
 }
 
 // SuggestPrompt builds a structured prompt for the suggest LLM call.

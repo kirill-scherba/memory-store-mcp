@@ -635,7 +635,7 @@ func (s *Storage) ExtractAndSave(text string) ([]string, error) {
 
 // Suggest analyses current context, active goals, and recent history to return
 // proactive suggestions.
-func (s *Storage) Suggest(currentContext string, limit int) ([]Suggestion, error) {
+func (s *Storage) Suggest(currentContext string, limit int, lang string) ([]Suggestion, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -681,8 +681,9 @@ Return a JSON array of suggestions. Each suggestion has: type (reminder/followup
 
 	suggestPrompt := SuggestPrompt(prompt)
 
+	sysPrompt := suggestSystemPrompt(lang)
 	msg := []OllamaChatMessage{
-		{Role: "system", Content: suggestSystemPrompt()},
+		{Role: "system", Content: sysPrompt},
 		{Role: "user", Content: suggestPrompt},
 	}
 
@@ -819,4 +820,132 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "…"
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Telegram bridge methods (return JSON strings for the Telegram bot)
+// ───────────────────────────────────────────────────────────────────────────
+
+// SaveFromTelegram saves a note and returns the key as JSON.
+func (s *Storage) SaveFromTelegram(title, description string, tags []string) (string, error) {
+	val := &MemoryValue{
+		Content:   description,
+		Summary:   title,
+		Tags:      tags,
+		Source:    "telegram",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	text := title + " " + description
+	key, err := s.Save("", val, text, true)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`"key":"%s"`, key), nil
+}
+
+// CreateGoalFromTelegram creates a goal and returns it as JSON.
+func (s *Storage) CreateGoalFromTelegram(title, description string, priority int, labels []string) (string, error) {
+	goal, err := s.CreateGoal(title, description, "", priority, labels)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(goal)
+	return string(data), nil
+}
+
+// SearchFromTelegram searches and returns results as JSON array string.
+func (s *Storage) SearchFromTelegram(query string, limit int) (string, error) {
+	results, err := s.Search(query, limit)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(results)
+	return string(data), nil
+}
+
+// ListGoalsFromTelegram lists goals and returns them as JSON string.
+func (s *Storage) ListGoalsFromTelegram(status string, labelsFilter []string) (string, error) {
+	goals, err := s.ListGoals(status, labelsFilter)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(goals)
+	return string(data), nil
+}
+
+// GetGoalFromTelegram gets a goal and returns it as JSON string.
+func (s *Storage) GetGoalFromTelegram(id string) (string, error) {
+	goal, err := s.GetGoal(id)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(goal)
+	return string(data), nil
+}
+
+// GetTimelineFromTelegram returns timeline entries as JSON string.
+func (s *Storage) GetTimelineFromTelegram(from, to string, limit int) (string, error) {
+	entries, err := s.GetTimeline(from, to, limit)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(entries)
+	return string(data), nil
+}
+
+// SuggestFromTelegram returns suggestions as JSON string.
+func (s *Storage) SuggestFromTelegram(currentContext string, limit int, lang string) (string, error) {
+	suggestions, err := s.Suggest(currentContext, limit, lang)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(suggestions)
+	return string(data), nil
+}
+
+// GetContextFromTelegram returns context as JSON string.
+func (s *Storage) GetContextFromTelegram(query string, limit int) (string, error) {
+	ctx, err := s.GetContext(query, limit)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(ctx)
+	return string(data), nil
+}
+
+// LLMQuestionProcess answers a user question using provided memory context + LLM.
+// The context is pre-built by the caller (e.g. from GetContext) and passed here.
+func (s *Storage) LLMQuestionProcess(question string, contextStr string, lang string) (string, error) {
+	// 1. Build system prompt based on language
+	systemPrompt := "You are a helpful AI assistant with access to the user's long-term memory."
+	systemPrompt += " Answer the user's question based on the memory context provided."
+	systemPrompt += " If the context doesn't contain relevant information, say so honestly."
+	if lang == "ru" {
+		systemPrompt = "Ты — полезный AI-ассистент с доступом к долговременной памяти пользователя."
+		systemPrompt += " Ответь на вопрос пользователя на основе предоставленного контекста из памяти."
+		systemPrompt += " Если в контексте нет нужной информации, честно скажи об этом."
+	}
+
+	// 4. Build user prompt with context
+	userPrompt := fmt.Sprintf(`## Memory Context
+%s
+
+## User Question
+%s
+
+Please answer the question based on the memory context above.`,
+		contextStr, question)
+
+	// 5. Generate LLM answer
+	messages := []OllamaChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	answer, err := generateAnswer(messages)
+	if err != nil {
+		return "", fmt.Errorf("LLM answer generation: %w", err)
+	}
+
+	return answer, nil
 }
