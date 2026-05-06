@@ -18,7 +18,14 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Semantic search** — vector similarity via Ollama embeddings (embeddinggemma:latest)
 - **Hierarchical keys** — S3-style: `memory/project/...`, `memory/user/...`, `memory/technical/...`
 - **Structured values** — JSON with content, summary, tags, timestamp, source
-- **MCP protocol** — JSON-RPC 2.0 over stdin/stdout, 5 tools
+- **MCP protocol** — JSON-RPC 2.0 over stdin/stdout, 13 tools, 5 resources
+- **Goal tracking** — full CRUD with status/progress/priority/labels/deadlines
+- **Timeline** — event log with date range queries
+- **Fact extraction** — auto-extract structured facts from conversation via LLM
+- **Proactive suggestions** — LLM-powered next-action recommendations
+- **Telegram bot** — optional Telegram integration (save notes, search, goals, suggest, ask LLM)
+- **CLI client** — 10 subcommands with formatted output (json/table/summary)
+- **Multi-language suggest** — en/ru support for suggestion prompts
 
 ## Target Audience
 

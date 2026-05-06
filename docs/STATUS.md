@@ -1,7 +1,7 @@
 # Status
 
 **Project**: memory-store-mcp — MCP server for persistent AI memory  
-**Last updated**: 2026-05-05  
+**Last updated**: 2026-05-06  
 **Status**: ✅ Alpha — all core features implemented and compiling
 
 ## Current State
@@ -25,6 +25,9 @@
 - [x] **Fix: chat model no longer falls back to embedding model** — `chatModel()` selects `chatModelOverride` → `LLM_MODEL` → `phi4-mini`, never `ollamaModelOverride`
 - [x] **CLI client** — `cmd/memory-cli/` (10 subcommands, stdio MCP client, proxyStderrWithThinking, auto-binary discovery)
 - [x] **CLI format output** — `-o` flag on goals, timeline, list, search commands supports `json|table|summary` with tabwriter rendering
+- [x] **Telegram bot** — optional Telegram integration with /note, /search, /goal, /suggest, /context, /ask commands; access control via TELEGRAM_ALLOWED_USERS
+- [x] **Multi-language suggest** — `Suggest()` API accepts `lang` parameter (en/ru); Telegram uses user language preference
+- [x] **Fix: Chat model log shows empty string** — `defaultLLMModel` used as fallback for display
 
 ### Not Yet Implemented (Phase 3 — future)
 

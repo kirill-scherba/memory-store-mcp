@@ -19,6 +19,7 @@ import (
 // Default LLM model and Ollama settings for extraction and suggestion.
 const (
 	defaultLLMModel = "phi4-mini"
+	defaultEmbeddingModel = "embeddinggemma:latest"
 	ollamaBaseURL   = "http://localhost:11434"
 	generateTimeout = 120 * time.Second
 )

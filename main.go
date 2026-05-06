@@ -35,10 +35,10 @@ func main() {
 	// Command line flags
 	dbPath := flag.String("db", "",
 		"Path to the database (default: ~/.config/memory-store-mcp/memory.db)")
-	model := flag.String("model", "embeddinggemma:latest",
+	model := flag.String("model", defaultEmbeddingModel,
 		"Ollama embedding model (default: embeddinggemma:latest)")
-	chatModel := flag.String("chat-model", "",
-		"Ollama chat model for extraction/suggest (default: phi4-mini)")
+	chatModel := flag.String("chat-model", defaultLLMModel,
+		"Ollama chat model for extraction/suggest")
 	telegramToken := flag.String("telegram", "",
 		"Telegram bot token (enables Telegram bot mode)")
 	showHelp := flag.Bool("h", false, "Show help")
@@ -53,6 +53,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nEnvironment variables:\n")
 		fmt.Fprintf(os.Stderr, "  OLLAMA_BASE_URL     Ollama API URL (default: http://localhost:11434)\n")
 		fmt.Fprintf(os.Stderr, "  EMBEDDING_MODEL     Embedding model (default: embeddinggemma:latest)\n")
+		fmt.Fprintf(os.Stderr, "  LLM_MODEL           Chat model (default: phi4-mini)\n")
 		os.Exit(0)
 	}
 
@@ -62,9 +63,10 @@ func main() {
 	}
 	setOllamaModel(*model)
 
-	if *chatModel != "" {
-		setChatModel(*chatModel)
+	if m := os.Getenv("LLM_MODEL"); m != "" {
+		*chatModel = m
 	}
+	setChatModel(*chatModel)
 
 	// Default db path
 	if *dbPath == "" {
