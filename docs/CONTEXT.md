@@ -19,19 +19,21 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Hierarchical keys** — S3-style: `memory/project/...`, `memory/user/...`, `memory/technical/...`
 - **Structured values** — JSON with content, summary, tags, timestamp, source
 - **MCP protocol** — JSON-RPC 2.0 over stdin/stdout, 13 tools, 5 resources
-- **Goal tracking** — full CRUD with status/progress/priority/labels/deadlines
+- **Goal tracking** — full CRUD with status/progress/priority/labels/deadlines, auto-progress from Markdown subtasks
 - **Timeline** — event log with date range queries
 - **Fact extraction** — auto-extract structured facts from conversation via LLM
 - **Proactive suggestions** — LLM-powered next-action recommendations
-- **Telegram bot** — optional Telegram integration (save notes, search, goals, suggest, ask LLM)
+- **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
 - **CLI client** — 10 subcommands with formatted output (json/table/summary)
-- **Multi-language suggest** — en/ru support for suggestion prompts
+- **Multi-language suggest** — en/ru support for suggestion prompts, configurable via Telegram user language preference
+- **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`)
 
 ## Target Audience
 
 - AI assistants (Cline, Claude, etc.) that need persistent memory
 - Developers who want their AI to remember context across conversations
 - Baron — the AI assistant with transmigrating soul
+- Telegram users who want AI memory via chat interface
 
 ## Dependencies
 
@@ -39,6 +41,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **github.com/kirill-scherba/keyvalembd** — S3-like key-value store with embeddings (libSQL + Ollama)
 - **github.com/mark3labs/mcp-go** — MCP library for Go
 - **Ollama** — embedding model (optional, for semantic search)
+- **github.com/go-telegram/bot** — Telegram bot framework (optional)
 
 ## Related Projects
 

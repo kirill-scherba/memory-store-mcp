@@ -3,54 +3,61 @@
 ## Architecture
 
 ```txt
-┌─────────────────────────────────────────────────────────────────────┐
-│                     MCP Client (AI Assistant)                        │
-│          initialize → tools/list → resources/ → tools/call          │
-└────────────────────────────┬────────────────────────────────────────┘
-                              │ JSON-RPC 2.0 over stdin/stdout
-┌─────────────────────────────▼──────────────────────────────────────┐
-│                    memory-store-mcp (Go binary)                     │
-│                                                                     │
-│  ┌─────────────────────┐   ┌───────────────────────────────────┐   │
-│  │    MCP Server Loop   │   │        memory-cli (Go binary)     │   │
-│  │    (ServeStdio)      │   │                                   │   │
-│  │                      │   │  Launch → memory-store-mcp via    │   │
-│  │  13 tools:           │   │  stdin/stdout MCP connection      │   │
-│  │  • memory_save       │   │                                   │   │
-│  │  • memory_get        │   │  10 subcommands:                  │   │
-│  │  • memory_delete     │   │  • save / get / delete / search   │   │
-│  │  • memory_search     │   │  • list / context / extract       │   │
-│  │  • memory_list       │   │  • goals / timeline / suggest     │   │
-│  │  • memory_get_context│   │                                   │   │
-│  │  • memory_extract    │   └──────────┬────────────────────────┘   │
-│  │  • memory_goal_create│              │ (direct connection,       │
-│  │  • memory_goal_list  │              │  no external deps)         │
-│  │  • memory_goal_update│                                           │
-│  │  • memory_goal_delete│                                           │
-│  │  • memory_timeline   │   ┌──────────────────────────────┐       │
-│  │  • memory_suggest    │   │      keyvalembd Library       │       │
-│  │                      │   │  ┌────────────────────────┐  │       │
-│  │  5 resources:        │   │  │  libSQL (libsql-server │  │       │
-│  │  • context/current   │──▶│  │  or SQLite via go-libsql)│  │       │
-│  │  • goals/active      │   │  │  kv_data                │  │       │
-│  │  • timeline/today    │   │  │  kv_embeddings          │  │       │
-│  │  • insights/recent   │   │  │  goals                  │  │       │
-│  └──────────────────────┘   │  │  timeline_events        │  │       │
-│                              │  └───────────┬────────────┘  │       │
-│                              │               │              │       │
-│                              │  ┌────────────▼───────────┐  │       │
-│                              │  │  Ollama Embedder       │  │       │
-│                              │  │  (embeddinggemma, 768d)│  │       │
-│                              │  └────────────────────────┘  │       │
-│                              │                               │       │
-│                              │  ┌────────────────────────┐  │       │
-│                              │  │  Ollama Chat LLM       │  │       │
-│                              │  │  (phi4-mini / config.) │  │       │
-│                              │  │  Used for: extraction  │  │       │
-│                              │  │  and suggestions       │  │       │
-│                              │  └────────────────────────┘  │       │
-│                              └──────────────────────────────┘       │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         MCP Client (AI Assistant)                              │
+│              initialize → tools/list → resources/ → tools/call                │
+└─────────────────────────────────┬──────────────────────────────────────────────┘
+                                   │ JSON-RPC 2.0 over stdin/stdout
+┌──────────────────────────────────▼───────────────────────────────────────────┐
+│                         memory-store-mcp (Go binary)                           │
+│                                                                                │
+│  ┌────────────────────────┐   ┌──────────────────────────────────┐            │
+│  │     MCP Server Loop     │   │        memory-cli (Go binary)    │            │
+│  │     (ServeStdio)        │   │                                  │            │
+│  │                         │   │  Launch → memory-store-mcp via   │            │
+│  │  13 tools:              │   │  stdin/stdout MCP connection     │            │
+│  │  • memory_save          │   │                                  │            │
+│  │  • memory_get           │   │  10 subcommands:                 │            │
+│  │  • memory_delete        │   │  • save / get / delete / search  │            │
+│  │  • memory_search        │   │  • list / context / extract      │            │
+│  │  • memory_list          │   │  • goals / timeline / suggest    │            │
+│  │  • memory_get_context   │   │                                  │            │
+│  │  • memory_extract       │   └──────────┬───────────────────────┘            │
+│  │  • memory_goal_create   │              │ (direct connection,                │
+│  │  • memory_goal_list     │              │  no external deps)                 │
+│  │  • memory_goal_update   │                                                  │
+│  │  • memory_goal_delete   │                                                  │
+│  │  • memory_timeline      │   ┌─────────────────────────────────────┐        │
+│  │  • memory_suggest       │   │        keyvalembd Library            │        │
+│  │                         │   │  ┌───────────────────────────────┐  │        │
+│  │  5 resources:           │   │  │  libSQL (libsql-server or     │  │        │
+│  │  • context/current      │──▶│  │  SQLite via go-libsql)        │  │        │
+│  │  • goals/active         │   │  │  kv_data                      │  │        │
+│  │  • timeline/today       │   │  │  kv_embeddings                │  │        │
+│  │  • insights/recent      │   │  │  goals                        │  │        │
+│  │  • awareness            │   │  │  timeline_events              │  │        │
+│  └─────────────────────────┘   │  └───────────┬───────────────────┘  │        │
+│                                 │              │                      │        │
+│  ┌─────────────────────────┐   │  ┌────────────▼──────────────────┐  │        │
+│  │    Telegram Bot (opt.)   │   │  │  Ollama Embedder              │  │        │
+│  │                         │   │  │  (embeddinggemma, 768d)       │  │        │
+│  │  Notebook mode:         │   │  └───────────────────────────────┘  │        │
+│  │  • classifyMessage()    │   │                                      │        │
+│  │  • note / goal /        │   │  ┌───────────────────────────────┐  │        │
+│  │    question / command   │   │  │  Ollama Chat LLM              │  │        │
+│  │                         │   │  │  (phi4-mini / configurable)   │  │        │
+│  │  Assistant mode:        │   │  │                                │  │        │
+│  │  • /search /goals       │   │  │  Used for: extraction          │  │        │
+│  │  • /goal /timeline      │   │  │  and suggestions               │  │        │
+│  │  • /suggest /context    │   │  └───────────────────────────────┘  │        │
+│  │  • /digest /language    │   └─────────────────────────────────────┘        │
+│  │                         │                                                  │
+│  │  Access control:        │                                                  │
+│  │  TELEGRAM_ALLOWED_USERS │                                                  │
+│  │                         │                                                  │
+│  │  i18n: ru/en            │                                                  │
+│  └─────────────────────────┘                                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Why keyvalembd?
@@ -124,7 +131,7 @@ This mirror gives goals semantic search coverage through the existing `kv_embedd
 
 Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 
-1. **`initialize`** — handshake (server identifies as `memory-store-mcp` v0.1.0)
+1. **`initialize`** — handshake (server identifies as `memory-store-mcp` v1.0.0)
 2. **`tools/list`** — returns all 13 tool definitions
 3. **`resources/list`** — returns 5 resource definitions
 4. **`tools/call`** — executes the requested tool
@@ -216,7 +223,7 @@ Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 
 ## MCP Resources
 
-Four dynamic MCP resources provide direct access to aggregated state:
+Five dynamic MCP resources provide direct access to aggregated state:
 
 | Resource URI | Description |
 | --- | --- |
@@ -225,14 +232,6 @@ Four dynamic MCP resources provide direct access to aggregated state:
 | `memory://context/current` | Aggregated relevant context from memory for the current conversation |
 | `memory://insights/recent` | Recently noticed patterns and insights from memory |
 | `memory://timeline/today` | Memory events from today |
-
-## Chat Model
-
-- **Purpose**: Powers `memory_extract` (fact extraction) and `memory_suggest` (proactive suggestions)
-- **Configuration**: `--chat-model` flag or `LLM_MODEL` environment variable
-- **Default**: `phi4-mini` (small, fast; runs locally)
-- **Separate from embedding model**: Chat model is never used as fallback for embeddings, and vice versa
-- **API**: Ollama `/api/chat` endpoint with structured JSON response format
 
 ## CLI Client (`memory-cli`)
 
@@ -246,6 +245,7 @@ Four dynamic MCP resources provide direct access to aggregated state:
   - Auto-discovery of memory-store-mcp binary (PATH, same directory, GOPATH/bin)
   - `proxyStderrWithThinking()` — elegant LLM streaming output with "Thinking..." indicator
   - All server flags forwarded: `--db`, `--model`, `--chat-model`
+  - Formatted output via `-o` flag: `json`, `table`, `summary` with tabwriter rendering
 
 ### Subcommands
 
@@ -261,6 +261,93 @@ Four dynamic MCP resources provide direct access to aggregated state:
 | `goals` | Create, list, update goals |
 | `timeline` | Query timeline events by date range |
 | `suggest` | Get proactive suggestions |
+
+## Telegram Bot (Optional)
+
+- **Activated by**: `--telegram <token>` CLI flag
+- **Library**: `github.com/go-telegram-bot-api/telegram-bot-api/v5` (long-polling)
+- **Architecture**: Two modes co-exist:
+
+### Notebook Mode (auto-classify text messages)
+
+Uses `classifyMessage()` — a purely rule-based classifier (no LLM call) that detects:
+
+| Classified Type | Heuristics | Action |
+| --- | --- | --- |
+| `note` | Default / no match | Save as memory via `SaveNote` |
+| `goal` | Starts with "хочу"/"i want"/"goal:" etc. | Create goal via `CreateGoal` |
+| `question` | Starts with "что"/"what"/"how"/ends with `?` | Semantic search + optional LLM answer |
+| `command` | Natural language like "покажи цели", "что делать" | Route to corresponding bot command handler |
+
+- Labels extracted from `#hashtags`
+- Priority guessed from urgency words ("срочно"/"urgent" → 9, "low priority" → 2)
+
+### Assistant Mode (commands)
+
+| Command | Description |
+| --- | --- |
+| `/start`, `/help` | Show welcome and help |
+| `/search <query>` | Semantic search across memory |
+| `/goals` | List active goals |
+| `/goal <id>` | Show goal details by ID |
+| `/timeline` | Recent events timeline |
+| `/suggest` | Get proactive suggestions |
+| `/context [query]` | Current context and memory |
+| `/digest [day\|week\|month]` | Summary for period |
+| `/language <ru\|en>` | Change bot language |
+
+### Access Control
+
+- `TELEGRAM_ALLOWED_USERS` env var — comma-separated Telegram user IDs
+- Empty/unset = open to all users
+- Access denied message in user's language
+
+### i18n
+
+- Two languages: Russian (default) and English
+- All strings stored in `i18n` map in `telegram/i18n.go`
+- User language auto-detected from Telegram's `LanguageCode`
+- Manual override via `/language` command
+- `BotCommand` descriptions registered in BotFather for both languages
+
+### Digest
+
+- `/digest` generates a summary with note count, active goals, total events, and recent entries
+- Periods: `day` (default), `week`, `month`
+- Based on timeline events + active goals
+
+## Chat Model
+
+- **Purpose**: Powers `memory_extract` (fact extraction), `memory_suggest` (proactive suggestions), and Telegram `/ask` questions
+- **Configuration**: `--chat-model` flag or `LLM_MODEL` environment variable
+- **Default**: `phi4-mini` (small, fast; runs locally)
+- **LLM URL**: `--llm-url` flag (replaces legacy `--ollama-url`), default `http://localhost:11434`
+- **Priority chain**: `--chat-model` flag → `LLM_MODULE` env var → `phi4-mini` default
+- **LLM URL priority chain**: `--llm-url` flag → `LLM_URL` env var → Ollama default base URL
+- **Separate from embedding model**: Chat model is never used as fallback for embeddings, and vice versa
+- **API**: Ollama `/api/chat` endpoint with structured JSON response format
+
+### Telegram LLM Question Answering
+
+When a question is asked in Telegram and an LLM processor is available:
+1. Search for relevant context via `GetContext`
+2. Pass question + context to LLM for a natural answer
+3. Fall back to showing raw context results if LLM unavailable
+
+## Environment Configuration
+
+All server configuration is via CLI flags. Only one environment variable is used:
+
+- **`TELEGRAM_ALLOWED_USERS`** — Comma-separated Telegram user IDs for access control
+- All other config (`--db`, `--model`, `--chat-model`, `--llm-url`, `--telegram`) via CLI flags
+
+Previously used `os.Getenv` calls have been removed in favour of CLI flags for consistency.
+
+## Unit Tests
+
+- `tools_goals_test.go` — tests for goal CRUD, auto-progress calculation, label parsing
+- `llm_test.go` — tests for chat model selection and sanitisation
+- Tested via in-memory SQLite databases
 
 ## Key Hierarchy (S3-style)
 
@@ -321,3 +408,5 @@ All stored embeddings are fetched and compared in Go. For large collections, SQL
 | Ollama (chat) | ❌ | Extract/suggest return error; all other tools work |
 | Database | ✅ | All tools work |
 | Database | ❌ | Server won't start |
+| Telegram | ✅ | Full bot functionality |
+| Telegram | ❌ | Bot won't start; MCP server continues unaffected |
