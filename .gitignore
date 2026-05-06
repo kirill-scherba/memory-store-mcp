@@ -1,3 +1,5 @@
-memory-store-mcp
-memory-cli
+/memory-store-mcp
+/memory-cli
+/cmd/memory-cli/memory-store-mcp
+/cmd/memory-cli/memory-cli
 telegram/bot_start.sh
