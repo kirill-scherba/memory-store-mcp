@@ -195,6 +195,11 @@ func processWithLLMAgent(userMessage string, lang string, funcs BotFuncs) (*Agen
 func parseAgentResponse(raw string) (*AgentCommand, error) {
 	raw = strings.TrimSpace(raw)
 
+	// Check for empty or trivial JSON that cannot be a valid command
+	if raw == "" || raw == "{}" || raw == `{"call":"","answer":""}` {
+		return nil, fmt.Errorf("empty or trivial JSON response: %q", truncateText(raw, 80))
+	}
+
 	// ── 0. Try direct JSON parse first (before any normalization) ──
 	var cmd AgentCommand
 	if err := json.Unmarshal([]byte(raw), &cmd); err == nil {
@@ -271,6 +276,11 @@ func parseAgentResponse(raw string) (*AgentCommand, error) {
 func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string {
 	if cmd.Answer != "" {
 		return cmd.Answer
+	}
+
+	if cmd.Call == "" {
+		// Neither answer nor call — nothing to dispatch
+		return ""
 	}
 
 	switch cmd.Call {

@@ -15,7 +15,7 @@ import (
 // handleText processes a non-command text message using the LLM agent.
 // The agent understands user intent, decides on actions (note, goal, question, etc.),
 // and returns structured JSON actions that are dispatched automatically.
-// Falls back to the old classifier if LLM is unavailable.
+// Falls back to the old classifier if LLM is unavailable or agent errors.
 func (b *Bot) handleText(msg *tgbotapi.Message) {
 	text := msg.Text
 	if text == "" {
@@ -26,11 +26,14 @@ func (b *Bot) handleText(msg *tgbotapi.Message) {
 
 	// ── Try LLM agent first ──────────────────────────────────────
 	if b.funcs.LLMRequest != nil {
-		b.handleTextWithAgent(text, msg.Chat.ID, lang)
-		return
+		err := b.handleTextWithAgent(text, msg.Chat.ID, lang)
+		if err == nil {
+			return
+		}
+		log.Printf("⚠ handleText: agent error, falling back to classifier: %v", err)
 	}
 
-	// ── Fallback: old classifier (notebook mode) ────────────────
+	// ── Fallback: old classifier ──────────────────────────────
 	b.handleTextClassifierFallback(msg, lang)
 }
 
@@ -232,7 +235,11 @@ func (b *builder) String() string {
 // processWithLLMAgent, dispatchAgentCommand). The agent is a full
 // assistant: it answers questions, saves notes, creates/updates goals,
 // searches, lists goals/timeline, suggests, and deletes memories.
-func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) {
+// Returns nil on success, or an error if the agent failed.
+func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) error {
+	// Log incoming message
+	log.Printf("📩 agent: chat=%d len=%d: %s", chatID, len(text), truncateText(text, 100))
+
 	// Send typing action to show we're working
 	b.sendChatAction(chatID)
 
@@ -276,13 +283,8 @@ func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) {
 	// 3. Call the full LLM agent from agent.go
 	cmd, err := processWithLLMAgent(userMessage, lang, b.funcs)
 	if err != nil {
-		log.Printf("⚠ LLM agent error: %v — falling back to classifier", err)
-		synthMsg := &tgbotapi.Message{
-			Chat: &tgbotapi.Chat{ID: chatID},
-			Text: text,
-		}
-		b.handleTextClassifierFallback(synthMsg, lang)
-		return
+		log.Printf("⚠ LLM agent error: %v", err)
+		return fmt.Errorf("agent failed: %w", err)
 	}
 
 	// 4. Dispatch the command
@@ -290,6 +292,7 @@ func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) {
 	if result != "" {
 		b.sendText(chatID, result)
 	}
+	return nil
 }
 
 // handleTextClassifierFallback is the old classifier-based handler, kept as
