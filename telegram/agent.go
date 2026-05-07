@@ -166,7 +166,6 @@ func processWithLLMAgent(userMessage string, lang string, funcs BotFuncs) (*Agen
 	systemPrompt := buildAgentSystemPrompt(funcs)
 
 	messages := []ChatMessage{
-		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userMessage},
 	}
 
@@ -196,10 +195,18 @@ func processWithLLMAgent(userMessage string, lang string, funcs BotFuncs) (*Agen
 func parseAgentResponse(raw string) (*AgentCommand, error) {
 	raw = strings.TrimSpace(raw)
 
-	// ── 0. Normalize: replace escaped \n with real newlines first ──
+	// ── 0. Try direct JSON parse first (before any normalization) ──
+	var cmd AgentCommand
+	if err := json.Unmarshal([]byte(raw), &cmd); err == nil {
+		if cmd.Call != "" || cmd.Answer != "" {
+			return &cmd, nil
+		}
+	}
+
+	// ── 1. Normalize: replace escaped \n with real newlines ──
 	normalized := strings.ReplaceAll(raw, "\\n", "\n")
 
-	// ── 1. Extract JSON from backtick fences (```json ... ``` or ``` ... ```) ──
+	// ── 2. Extract JSON from backtick fences (```json ... ``` or ``` ... ```) ──
 	var jsonStr string
 	if idx := strings.Index(normalized, "```json"); idx >= 0 {
 		rest := normalized[idx+7:]           // after ```json
@@ -234,27 +241,27 @@ func parseAgentResponse(raw string) (*AgentCommand, error) {
 		}
 	}
 
-	// ── 2. Direct JSON parse on the full normalized string ──
-	var cmd AgentCommand
-	if err := json.Unmarshal([]byte(normalized), &cmd); err == nil {
-		if cmd.Call != "" || cmd.Answer != "" {
-			return &cmd, nil
+	// ── 3. Direct JSON parse on the full normalized string ──
+	var cmd2 AgentCommand
+	if err := json.Unmarshal([]byte(normalized), &cmd2); err == nil {
+		if cmd2.Call != "" || cmd2.Answer != "" {
+			return &cmd2, nil
 		}
 	}
 
-	// ── 3. Find any JSON object { ... } in the full normalized text ──
+	// ── 4. Find any JSON object { ... } in the full normalized text ──
 	if braceStart := strings.Index(normalized, "{"); braceStart >= 0 {
 		if braceEnd := strings.LastIndex(normalized, "}"); braceEnd > braceStart {
 			candidate := strings.TrimSpace(normalized[braceStart : braceEnd+1])
-			if err := json.Unmarshal([]byte(candidate), &cmd); err == nil {
-				if cmd.Call != "" || cmd.Answer != "" {
-					return &cmd, nil
+			if err := json.Unmarshal([]byte(candidate), &cmd2); err == nil {
+				if cmd2.Call != "" || cmd2.Answer != "" {
+					return &cmd2, nil
 				}
 			}
 		}
 	}
 
-	// ── 4. Fallback: treat entire raw response as plain text answer ──
+	// ── 5. Fallback: treat entire raw response as plain text answer ──
 	Logf("⚠ LLM agent response not valid JSON, treating as plain answer. Raw: %s", truncateText(raw, 200))
 	return &AgentCommand{Answer: raw}, nil
 }
