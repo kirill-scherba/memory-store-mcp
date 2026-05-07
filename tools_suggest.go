@@ -28,6 +28,9 @@ Analyzes active goals + timeline + recent memories to recommend next actions.`),
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of suggestions (default: 5, max: 10)"),
 		),
+		mcp.WithString("lang",
+			mcp.Description("Language for suggestions: 'en' (English, default) or 'ru' (Russian)"),
+		),
 	)
 
 	return server.ServerTool{
@@ -37,6 +40,11 @@ Analyzes active goals + timeline + recent memories to recommend next actions.`),
 			currentContext, _ := args["context"].(string)
 			if currentContext == "" {
 				currentContext = "current conversation"
+			}
+
+			lang, _ := args["lang"].(string)
+			if lang == "" {
+				lang = "en"
 			}
 
 			limit := 5
@@ -50,7 +58,7 @@ Analyzes active goals + timeline + recent memories to recommend next actions.`),
 				limit = 5
 			}
 
-			suggestions, err := s.Suggest(currentContext, limit, "en")
+			suggestions, err := s.Suggest(currentContext, limit, lang)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error generating suggestions: %v", err)), nil
 			}
