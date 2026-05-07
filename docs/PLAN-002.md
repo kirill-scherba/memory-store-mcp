@@ -21,13 +21,19 @@
 
 ## Задачи
 
-### Задача 1: Добавить `--debug` флаг и уровни логирования
+### Задача 1: Заменить BotLogger на `kirill-scherba/log` и добавить `--debug` флаг
 - Добавить `--debug` / `--log-level` в `main.go`
-- Модифицировать `BotLogger`: уровни (DEBUG, INFO, WARN, ERROR)
-- Пакетно-уровневые хелперы: `Debugf()`, `Infof()`, `Warnf()`
+- Заменить кастомный `telegram/log.go` (BotLogger с file rotation) на библиотеку [`kirill-scherba/log`](https://github.com/kirill-scherba/log):
+  - Поддержка stdout, файлов и Elasticsearch
+  - JSON-формат с полями timestamp, level, message
+  - Уровни: DEBUG, INFO, WARN, ERROR
+  - Совместимость со стандартным `log` пакетом
+- Пакетно-уровневые хелперы: `Debugf()`, `Infof()`, `Warnf()`, `Errorf()`
 - По умолчанию: INFO+ идут в stderr, DEBUG — только в файл при `--debug`
+- Удалить `telegram/log.go` после миграции
 
-**Файлы:** `telegram/log.go`, `main.go`
+**Файлы:** `main.go`, `telegram/bot.go` (миграция вызовов), удалить `telegram/log.go`
+**Библиотека:** `github.com/kirill-scherba/log`
 
 ### Задача 2: Ручное тестирование бота / LLM
 - Запустить бота с тестовым токеном

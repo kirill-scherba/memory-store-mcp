@@ -42,6 +42,8 @@ type BotFuncs struct {
 	LLMProcess func(question string, context string, lang string) (string, error)
 	// UpdateGoal updates a goal. Returns JSON string.
 	UpdateGoal func(id, title, description, status, deadline string, priority, progress int, labels []string) (string, error)
+	// DeleteGoal deletes a goal by ID.
+	DeleteGoal func(id string) error
 	// DeleteMemory deletes a memory by key.
 	DeleteMemory func(key string) error
 	// GetMemory retrieves a memory by key and returns its JSON string.

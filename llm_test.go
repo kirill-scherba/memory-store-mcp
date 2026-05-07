@@ -5,34 +5,34 @@ import (
 	"testing"
 )
 
-func TestParseOllamaResponseNonStreaming(t *testing.T) {
-	got, err := parseOllamaResponse([]byte(`{"message":{"role":"assistant","content":"  hello  "},"done":true}`))
+func TestParseLLMResponseNonStreaming(t *testing.T) {
+	got, err := parseLLMResponse([]byte(`{"message":{"role":"assistant","content":"  hello  "},"done":true}`))
 	if err != nil {
-		t.Fatalf("parseOllamaResponse() error = %v", err)
+		t.Fatalf("parseLLMResponse() error = %v", err)
 	}
 	if got != "hello" {
-		t.Fatalf("parseOllamaResponse() = %q, want %q", got, "hello")
+		t.Fatalf("parseLLMResponse() = %q, want %q", got, "hello")
 	}
 }
 
-func TestParseOllamaResponseStreaming(t *testing.T) {
+func TestParseLLMResponseStreaming(t *testing.T) {
 	body := strings.Join([]string{
 		`{"message":{"role":"assistant","content":"hel"},"done":false}`,
 		`{"message":{"role":"assistant","content":"lo"},"done":false}`,
 		`{"done":true}`,
 	}, "\n")
 
-	got, err := parseOllamaResponse([]byte(body))
+	got, err := parseLLMResponse([]byte(body))
 	if err != nil {
-		t.Fatalf("parseOllamaResponse() error = %v", err)
+		t.Fatalf("parseLLMResponse() error = %v", err)
 	}
 	if got != "hello" {
-		t.Fatalf("parseOllamaResponse() = %q, want %q", got, "hello")
+		t.Fatalf("parseLLMResponse() = %q, want %q", got, "hello")
 	}
 }
 
-func TestParseOllamaResponseInvalid(t *testing.T) {
-	if _, err := parseOllamaResponse([]byte(`not json`)); err == nil {
-		t.Fatal("parseOllamaResponse() error = nil, want error")
+func TestParseLLMResponseInvalid(t *testing.T) {
+	if _, err := parseLLMResponse([]byte(`not json`)); err == nil {
+		t.Fatal("parseLLMResponse() error = nil, want error")
 	}
 }

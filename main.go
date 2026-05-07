@@ -57,6 +57,7 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Set chat model
 	setChatModel(*chatModel)
 
 	// Set LLM URL override (--llm-url flag)
@@ -67,8 +68,8 @@ func main() {
 	//   - plain text: "sk-or-..."
 	//   - file: prefix: "file:/path/to/keyfile"
 	key := *llmAPIKey
-	if strings.HasPrefix(key, "file:") {
-		keyPath := strings.TrimPrefix(key, "file:")
+	if after, ok :=strings.CutPrefix(key, "file:"); ok  {
+		keyPath := after
 		keyData, err := os.ReadFile(keyPath)
 		if err != nil {
 			log.Fatalf("Failed to read LLM API key from %s: %v", keyPath, err)

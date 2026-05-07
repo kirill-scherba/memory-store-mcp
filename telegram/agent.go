@@ -69,6 +69,10 @@ func buildAgentSystemPrompt(funcs BotFuncs, lang string) string {
 			if funcs.DeleteMemory != nil {
 				return "✅ available"
 			}
+		case "delete_goal":
+			if funcs.DeleteGoal != nil {
+				return "✅ available"
+			}
 		case "search":
 			if funcs.Search != nil {
 				return "✅ available"
@@ -142,6 +146,7 @@ RULES:
 - When user says "I want to learn...", "new goal:", "goal:", "новая цель:", "хочу научиться...", "создай цель..." → call create_goal
 - When user says "what are my goals", "show goals", "my goals", "мои цели", "покажи цели" → call list_goals
 - When user asks "what do you know about...", "search for...", "найди...", "что ты знаешь о..." → call search
+- When user says "удали цель", "delete goal" → call delete_goal
 
 FUNCTIONS:
 `
@@ -149,6 +154,7 @@ FUNCTIONS:
 	prompt += fmt.Sprintf("  - create_goal (%s): create a goal\n", avail("create_goal"))
 	prompt += fmt.Sprintf("  - update_goal (%s): update a goal\n", avail("update_goal"))
 	prompt += fmt.Sprintf("  - delete_memory (%s): delete a memory by key\n", avail("delete_memory"))
+	prompt += fmt.Sprintf("  - delete_goal (%s): delete a goal by ID\n", avail("delete_goal"))
 	prompt += fmt.Sprintf("  - search (%s): search memories by query\n", avail("search"))
 	prompt += fmt.Sprintf("  - list_goals (%s): list goals (status: active/completed/archived)\n", avail("list_goals"))
 	prompt += fmt.Sprintf("  - get_goal (%s): get a single goal by ID\n", avail("get_goal"))
@@ -176,6 +182,7 @@ Function call format (use ONLY when user EXPLICITLY asks):
   {"call":"suggest","query":"...","limit":5}
   {"call":"update_goal","goal_id":"...","title":"","content":"","status":"","priority":-1,"progress":-1,"labels":[]}
   {"call":"delete_memory","key":"..."}
+  {"call":"delete_goal","goal_id":"..."}
   {"call":"get_goal","goal_id":"..."}
   {"call":"get_memory","key":"..."}
 
@@ -405,6 +412,25 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		}
 		return fmt.Sprintf("✅ Deleted: %s", cmd.Key)
 
+	case "delete_goal":
+		if funcs.DeleteGoal == nil {
+			return "Delete goal is not available."
+		}
+		if cmd.GoalID == "" {
+			if lang == "ru" {
+				return "❌ Не указан ID цели. Используй /goals чтобы увидеть список целей и их ID."
+			}
+			return "❌ No goal ID specified. Use /goals to see goals and their IDs."
+		}
+		if err := funcs.DeleteGoal(cmd.GoalID); err != nil {
+			log.Printf("⚠ delete_goal error: %v", err)
+			return fmt.Sprintf("❌ Failed to delete goal: %v", err)
+		}
+		if lang == "ru" {
+			return fmt.Sprintf("✅ Цель удалена! ID: %s", cmd.GoalID)
+		}
+		return fmt.Sprintf("✅ Goal deleted! ID: %s", cmd.GoalID)
+
 	case "search":
 		if funcs.Search == nil {
 			return "Search is not available."
@@ -617,4 +643,3 @@ func parseLabels(labelsRaw json.RawMessage) []string {
 	}
 	return labels
 }
-
