@@ -44,6 +44,8 @@ type BotFuncs struct {
 	UpdateGoal func(id, title, description, status, deadline string, priority, progress int, labels []string) (string, error)
 	// DeleteMemory deletes a memory by key.
 	DeleteMemory func(key string) error
+	// GetMemory retrieves a memory by key and returns its JSON string.
+	GetMemory func(key string) (string, error)
 	// LLMRequest sends messages to the LLM and returns the raw text response.
 	LLMRequest LLMRequester
 }

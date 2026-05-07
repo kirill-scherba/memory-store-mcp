@@ -139,16 +139,28 @@ func formatSearchResults(results []SearchResult, lang string) string {
 	for i, r := range results {
 		var mv MemoryValue
 		title := ""
+		content := ""
 		if err := json.Unmarshal([]byte(r.Value), &mv); err == nil {
 			title = mv.Summary
 			if title == "" {
 				title = mv.Content
 			}
+			content = mv.Content
+			if content == "" {
+				content = mv.Summary
+			}
+			if title == content {
+				content = ""
+			}
 		}
 		if title == "" {
 			title = r.Key
 		}
-		reply += fmt.Sprintf("%d. <b>%s</b>\n   🔑 %s  (%.0f%%)\n\n", i+1, escapeHTML(title), escapeHTML(r.Key), r.Score*100)
+		reply += fmt.Sprintf("%d. <b>%s</b>\n", i+1, escapeHTML(title))
+		if content != "" {
+			reply += fmt.Sprintf("   %s\n", escapeHTML(truncateText(content, 200)))
+		}
+		reply += fmt.Sprintf("   🔑 %s  (%.0f%%)\n\n", escapeHTML(r.Key), r.Score*100)
 	}
 	if len(reply) > 4000 {
 		reply = reply[:4000] + "\n..."

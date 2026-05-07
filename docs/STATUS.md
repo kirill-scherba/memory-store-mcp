@@ -127,7 +127,7 @@
 
 ## Known Issues
 
-1. **No integration tests** — unit tests cover goals and LLM, but no end-to-end test with a real database
+1. **No integration tests** — unit tests cover goals, LLM, and Telegram assistant, but no end-to-end test with a real database
 2. **No performance benchmarks** — semantic search performance on large datasets (10k+ entries) is unknown
 3. **No Dockerfile** — currently requires manual Go build; no containerised deployment
 4. **Ollama dependency** — semantic search and LLM features require a running Ollama instance; graceful degradation is in place but reduced functionality

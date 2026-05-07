@@ -226,12 +226,25 @@ func (s *Storage) List(prefix string) ([]string, error) {
 	return keys, nil
 }
 
-// SearchResult is a search result entry.
-type SearchResult = keyvalembd.SearchResult
+// SearchResult is a search result entry enriched with value.
+type SearchResult struct {
+	Key       string  `json:"key"`
+	Score     float64 `json:"score"`
+	Value     string  `json:"value,omitempty"`
+	CreatedAt string  `json:"created_at,omitempty"`
+}
 
 // Search performs semantic search across all memories.
 func (s *Storage) Search(query string, limit int) ([]SearchResult, error) {
-	return s.kv.SearchSemantic(query, limit)
+	rawResults, err := s.kv.SearchSemantic(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]SearchResult, len(rawResults))
+	for i, r := range rawResults {
+		results[i] = SearchResult{Key: r.Key, Score: r.Score}
+	}
+	return results, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -863,16 +876,35 @@ func (s *Storage) UpdateGoalFromTelegram(id, title, description, status, deadlin
 	return string(data), nil
 }
 
+// GetMemoryFromTelegram retrieves a memory by key and returns its JSON string.
+func (s *Storage) GetMemoryFromTelegram(key string) (string, error) {
+	val, err := s.Get(key)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(val)
+	return string(data), nil
+}
+
 // DeleteMemoryFromTelegram deletes a memory by key.
 func (s *Storage) DeleteMemoryFromTelegram(key string) error {
 	return s.Delete(key)
 }
 
 // SearchFromTelegram searches and returns results as JSON array string.
+// Enriches each result with full value from storage.
 func (s *Storage) SearchFromTelegram(query string, limit int) (string, error) {
 	results, err := s.Search(query, limit)
 	if err != nil {
 		return "", err
+	}
+	// Enrich each result with full value from storage
+	for i, r := range results {
+		val, errGet := s.Get(r.Key)
+		if errGet == nil && val != nil {
+			valJSON, _ := json.Marshal(val)
+			results[i].Value = string(valJSON)
+		}
 	}
 	data, _ := json.Marshal(results)
 	return string(data), nil

@@ -27,28 +27,29 @@ import (
 
 // AgentCommand is a structured command that the LLM can request.
 type AgentCommand struct {
-	Call     string `json:"call"`     // operation name
-	Query    string `json:"query"`    // for search/get_context
-	Title    string `json:"title"`    // for save_note / create_goal / update_goal
-	Text     string `json:"text"`     // for save_note / extract
-	Content  string `json:"content"`  // for save_note (description)
-	Priority int    `json:"priority"` // for create_goal / update_goal
-	Progress int    `json:"progress"` // for update_goal
-	Status   string `json:"status"`   // for update_goal
-	GoalID   string `json:"goal_id"`  // for update_goal / delete_goal
-	Key      string `json:"key"`      // for memory_get / memory_delete
-	Limit    int    `json:"limit"`    // for search / get_context
-	Labels   string `json:"labels"`   // JSON array string for goals
-	Deadline string `json:"deadline"` // for create_goal / update_goal
-	Lang     string `json:"lang"`     // language
-	From     string `json:"from"`     // timeline from
-	To       string `json:"to"`       // timeline to
-	Answer   string `json:"answer"`   // plain text answer to user
+	Call     string          `json:"call"`     // operation name
+	Query    string          `json:"query"`    // for search/get_context
+	Title    string          `json:"title"`    // for save_note / create_goal / update_goal
+	Text     string          `json:"text"`     // for save_note / extract
+	Content  string          `json:"content"`  // for save_note (description)
+	Priority int             `json:"priority"` // for create_goal / update_goal
+	Progress int             `json:"progress"` // for update_goal
+	Status   string          `json:"status"`   // for update_goal
+	GoalID   string          `json:"goal_id"`  // for update_goal / delete_goal
+	Key      string          `json:"key"`      // for memory_get / memory_delete
+	Limit    int             `json:"limit"`    // for search / get_context
+	Labels   json.RawMessage `json:"labels"`   // JSON array string or raw array for goals
+	Deadline string          `json:"deadline"` // for create_goal / update_goal
+	Lang     string          `json:"lang"`     // language
+	From     string          `json:"from"`     // timeline from
+	To       string          `json:"to"`       // timeline to
+	Answer   string          `json:"answer"`   // plain text answer to user
 }
 
 // buildAgentSystemPrompt builds the ONE system prompt for the LLM agent.
 // The agent answers in the same language as the user's question.
-func buildAgentSystemPrompt(funcs BotFuncs) string {
+// lang is the language code ("ru" or "en") that the agent MUST use in its answer.
+func buildAgentSystemPrompt(funcs BotFuncs, lang string) string {
 	// Determine available operations based on what callbacks are set
 	avail := func(name string) string {
 		switch name {
@@ -80,6 +81,10 @@ func buildAgentSystemPrompt(funcs BotFuncs) string {
 			if funcs.GetGoal != nil {
 				return "✅ available"
 			}
+		case "get_memory":
+			if funcs.GetMemory != nil {
+				return "✅ available"
+			}
 		case "get_timeline":
 			if funcs.GetTimeline != nil {
 				return "✅ available"
@@ -98,7 +103,7 @@ func buildAgentSystemPrompt(funcs BotFuncs) string {
 
 	prompt := `You are an AI assistant for a memory and goal management system.
 
-IMPORTANT: Answer in the SAME LANGUAGE as the user's question. If user writes in Russian — answer in Russian. If in English — answer in English. Etc.
+IMPORTANT: You MUST answer in LANGUAGE CODE: ` + lang + `. If lang is "ru" — answer in Russian. If lang is "en" — answer in English. This is a strict requirement.
 
 CAPABILITIES:
 - Answer questions using context from the user's memory
@@ -112,8 +117,10 @@ CAPABILITIES:
 RULES:
 - By default answer naturally. NEVER save or create goals unless explicitly asked.
 - When user asks about goals → call list_goals
-- When user wants to remember → call save_note
-- When user wants a new goal → call create_goal
+- When user says "remember that...", "save this...", "note that...", "запомни...", "сохрани...", "напомни..." → call save_note
+- When user says "I want to learn...", "new goal:", "goal:", "новая цель:", "хочу научиться...", "создай цель..." → call create_goal
+- When user says "what are my goals", "show goals", "my goals", "мои цели", "покажи цели" → call list_goals
+- When user asks "what do you know about...", "search for...", "найди...", "что ты знаешь о..." → call search
 
 FUNCTIONS:
 `
@@ -124,6 +131,7 @@ FUNCTIONS:
 	prompt += fmt.Sprintf("  - search (%s): search memories by query\n", avail("search"))
 	prompt += fmt.Sprintf("  - list_goals (%s): list goals (status: active/completed/archived)\n", avail("list_goals"))
 	prompt += fmt.Sprintf("  - get_goal (%s): get a single goal by ID\n", avail("get_goal"))
+	prompt += fmt.Sprintf("  - get_memory (%s): get a memory by key\n", avail("get_memory"))
 	prompt += fmt.Sprintf("  - get_timeline (%s): get timeline of events\n", avail("get_timeline"))
 	prompt += fmt.Sprintf("  - get_context (%s): get relevant context from memory\n", avail("get_context"))
 	prompt += fmt.Sprintf("  - suggest (%s): get proactive suggestions\n", avail("suggest"))
@@ -138,16 +146,17 @@ RIGHT (do this):
   {"call":"","answer":"hello"}
 
 Function call format (use ONLY when user EXPLICITLY asks):
-  {"call":"save_note","title":"...","content":"...","labels":"[]"}
-  {"call":"create_goal","title":"...","content":"...","priority":5,"labels":"[]","deadline":""}
-  {"call":"list_goals","status":"active","labels":""}
+  {"call":"save_note","title":"...","content":"...","labels":[]}
+  {"call":"create_goal","title":"...","content":"...","priority":5,"labels":["label1","label2"],"deadline":""}
+  {"call":"list_goals","status":"active","labels":[]}
   {"call":"search","query":"...","limit":10}
   {"call":"get_timeline","from":"","to":"","limit":10}
   {"call":"get_context","query":"...","limit":5}
   {"call":"suggest","query":"...","limit":5}
-  {"call":"update_goal","goal_id":"...","title":"","content":"","status":"","priority":-1,"progress":-1,"labels":""}
+  {"call":"update_goal","goal_id":"...","title":"","content":"","status":"","priority":-1,"progress":-1,"labels":[]}
   {"call":"delete_memory","key":"..."}
   {"call":"get_goal","goal_id":"..."}
+  {"call":"get_memory","key":"..."}
 
 Plain answer (default - use for greetings and most messages):
   {"call":"","answer":"your response in the user's language here"}
@@ -163,7 +172,7 @@ CRITICAL RULES:
 // processWithLLMAgent sends the user message to the LLM with the system prompt
 // and parses the response into an AgentCommand. Logs the full interaction.
 func processWithLLMAgent(userMessage string, lang string, funcs BotFuncs) (*AgentCommand, error) {
-	systemPrompt := buildAgentSystemPrompt(funcs)
+	systemPrompt := buildAgentSystemPrompt(funcs, lang)
 
 	messages := []ChatMessage{
 		{Role: "user", Content: userMessage},
@@ -434,6 +443,53 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		}
 		return formatGoalDetail(g, lang)
 
+	case "get_memory":
+		if funcs.GetMemory == nil {
+			return "Get memory is not available."
+		}
+		if cmd.Key == "" {
+			if lang == "ru" {
+				return "❌ Не указан ключ памяти."
+			}
+			return "❌ No memory key specified."
+		}
+		memoryJSON, err := funcs.GetMemory(cmd.Key)
+		if err != nil {
+			return fmt.Sprintf("❌ %v", err)
+		}
+		// Parse and format nicely
+		var mv MemoryValue
+		if err := json.Unmarshal([]byte(memoryJSON), &mv); err == nil {
+			var reply string
+			if lang == "ru" {
+				reply = fmt.Sprintf("📖 <b>Память:</b> <code>%s</code>\n\n", cmd.Key)
+			} else {
+				reply = fmt.Sprintf("📖 <b>Memory:</b> <code>%s</code>\n\n", cmd.Key)
+			}
+			if mv.Summary != "" {
+				reply += fmt.Sprintf("📝 <b>%s</b>\n\n", escapeHTML(mv.Summary))
+			}
+			if mv.Content != "" {
+				reply += fmt.Sprintf("%s\n\n", escapeHTML(mv.Content))
+			}
+			if len(mv.Tags) > 0 {
+				reply += fmt.Sprintf("🏷 %s\n", formatLabels(mv.Tags))
+			}
+			if mv.Source != "" {
+				if lang == "ru" {
+					reply += fmt.Sprintf("📡 Источник: %s", mv.Source)
+				} else {
+					reply += fmt.Sprintf("📡 Source: %s", mv.Source)
+				}
+			}
+			return reply
+		}
+		// Fallback: return raw JSON
+		if lang == "ru" {
+			return fmt.Sprintf("📖 Содержимое памяти (ключ: %s):\n%s", cmd.Key, memoryJSON)
+		}
+		return fmt.Sprintf("📖 Memory content (key: %s):\n%s", cmd.Key, memoryJSON)
+
 	case "get_timeline":
 		if funcs.GetTimeline == nil {
 			return "Get timeline is not available."
@@ -503,20 +559,39 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 // Helpers
 // ---------------------------------------------------------------------------
 
-// parseLabels parses a labels JSON string into a slice.
-func parseLabels(labelsJSON string) []string {
-	if labelsJSON == "" {
+// parseLabels parses a labels JSON raw message into a slice.
+// Accepts both JSON array (["a","b"]) and JSON-string-of-array ("[\"a\",\"b\"]").
+func parseLabels(labelsRaw json.RawMessage) []string {
+	if len(labelsRaw) == 0 {
 		return nil
 	}
+	// Try direct array parse first: ["a","b"]
 	var labels []string
-	if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+	if err := json.Unmarshal(labelsRaw, &labels); err == nil {
+		return labels
+	}
+	// Try quoted string: "[\"a\",\"b\"]"
+	var str string
+	if err := json.Unmarshal(labelsRaw, &str); err == nil {
+		if err := json.Unmarshal([]byte(str), &labels); err == nil {
+			return labels
+		}
 		// Try comma-separated
-		parts := strings.Split(labelsJSON, ",")
+		parts := strings.Split(str, ",")
 		for _, p := range parts {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				labels = append(labels, p)
 			}
+		}
+		return labels
+	}
+	// Last resort: comma-separated from raw string
+	parts := strings.Split(strings.Trim(string(labelsRaw), `"[] `), ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			labels = append(labels, p)
 		}
 	}
 	return labels

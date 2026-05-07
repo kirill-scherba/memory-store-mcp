@@ -265,22 +265,22 @@ func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) error 
 						contextStr += fmt.Sprintf("- [%d%%] %s: %s\n", g.Progress, g.Title, g.Description)
 					}
 				}
-			if len(ctx.Memories) > 0 {
-				contextStr += "\nRecent memories:\n"
-				for i, mem := range ctx.Memories {
-					if i >= 3 {
-						break
+				if len(ctx.Memories) > 0 {
+					contextStr += "\nRecent memories:\n"
+					for i, mem := range ctx.Memories {
+						if i >= 3 {
+							break
+						}
+						summary := mem.Value.Summary
+						if summary == "" {
+							summary = truncateText(mem.Value.Content, 100)
+						}
+						if summary == "" {
+							summary = mem.Key
+						}
+						contextStr += fmt.Sprintf("- %s\n", summary)
 					}
-					summary := mem.Value.Summary
-					if summary == "" {
-						summary = truncateText(mem.Value.Content, 100)
-					}
-					if summary == "" {
-						summary = mem.Key
-					}
-					contextStr += fmt.Sprintf("- %s\n", summary)
 				}
-			}
 			}
 		}
 	}
