@@ -336,6 +336,8 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 			log.Printf("   Ignore — continuing with MCP server only")
 		} else {
 			go bot.Run()
+			// Register debug tool for the Telegram LLM agent
+			s.AddTools(telegramDebugTool(bot))
 		}
 	}
 

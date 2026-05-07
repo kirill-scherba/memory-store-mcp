@@ -56,6 +56,10 @@ type Bot struct {
 	allowedUsers map[int64]bool // empty = open to all
 	mu           sync.RWMutex
 	userLang     map[int64]string // chatID -> language code ("ru"/"en")
+
+	debugMode     bool   // debug mode — captures responses instead of sending to Telegram
+	debugResponse string
+	debugMu       sync.Mutex
 }
 
 // NewBot creates a new Telegram bot linked to the given functional callbacks.
@@ -304,10 +308,60 @@ func (b *Bot) buildHelp(lang string) string {
 }
 
 // sendText sends a plain text message with HTML parse mode.
+// In debug mode, the response is captured instead of sent to Telegram.
 func (b *Bot) sendText(chatID int64, text string) {
+	b.debugMu.Lock()
+	if b.debugMode {
+		b.debugResponse += text + "\n---\n"
+		b.debugMu.Unlock()
+		return
+	}
+	b.debugMu.Unlock()
+
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "HTML"
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("⚠ telegram send error: %v", err)
 	}
+}
+
+// sendChatAction sends a "typing" action to the chat.
+// In debug mode it's a no-op since there's no real chat connection.
+func (b *Bot) sendChatAction(chatID int64) {
+	b.debugMu.Lock()
+	debug := b.debugMode
+	b.debugMu.Unlock()
+	if debug {
+		return
+	}
+
+	action := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
+	if _, err := b.api.Request(action); err != nil {
+		log.Printf("⚠ sendChatAction error: %v", err)
+	}
+}
+
+// DebugProcess simulates a text message from chatID in the given language,
+// routes it through the LLM agent (handleTextWithAgent), captures the
+// response instead of sending to Telegram, and returns it.
+// The response is also logged to the file logger (if configured).
+func (b *Bot) DebugProcess(chatID int64, text string, lang string) (string, error) {
+	b.mu.Lock()
+	b.userLang[chatID] = lang
+	b.mu.Unlock()
+
+	b.debugMu.Lock()
+	b.debugMode = true
+	b.debugResponse = ""
+	b.debugMu.Unlock()
+
+	err := b.handleTextWithAgent(text, chatID, lang)
+
+	b.debugMu.Lock()
+	b.debugMode = false
+	resp := b.debugResponse
+	b.debugResponse = ""
+	b.debugMu.Unlock()
+
+	return resp, err
 }
