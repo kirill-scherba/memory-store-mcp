@@ -320,12 +320,5 @@ func (b *Bot) handleTextClassifierFallback(msg *tgbotapi.Message, lang string) {
 	}
 }
 
-// sendChatAction sends a "typing" action to the chat.
-func (b *Bot) sendChatAction(chatID int64) {
-	action := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
-	if _, err := b.api.Request(action); err != nil {
-		log.Printf("⚠ sendChatAction error: %v", err)
-	}
-}
-
 // Note: escapeHTML, formatLabels, truncateText are defined in assistant.go
+// sendChatAction is defined in bot.go (with debug mode support)
