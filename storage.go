@@ -311,9 +311,9 @@ func (s *Storage) GetContext(query string, limit int) (*ContextResult, error) {
 
 // CreateGoal creates a new goal and returns its ID.
 func (s *Storage) CreateGoal(title, description, deadline string, priority int, labels []string) (*Goal, error) {
-	id := fmt.Sprintf("goal/%s/%s",
+	id := fmt.Sprintf("goal/%s/%d",
 		time.Now().UTC().Format("2006-01-02"),
-		fmt.Sprintf("%x", md5.Sum([]byte(title)))[:8],
+		time.Now().UnixNano(),
 	)
 	now := time.Now().UTC().Unix()
 	labels = normalizeLabels(labels)
@@ -874,6 +874,11 @@ func (s *Storage) UpdateGoalFromTelegram(id, title, description, status, deadlin
 	}
 	data, _ := json.Marshal(goal)
 	return string(data), nil
+}
+
+// DeleteGoalFromTelegram deletes a goal by ID.
+func (s *Storage) DeleteGoalFromTelegram(id string) error {
+	return s.DeleteGoal(id)
 }
 
 // GetMemoryFromTelegram retrieves a memory by key and returns its JSON string.

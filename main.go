@@ -350,6 +350,7 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 			SaveNote:    store.SaveFromTelegram,
 			CreateGoal:  store.CreateGoalFromTelegram,
 			UpdateGoal:  store.UpdateGoalFromTelegram,
+			DeleteGoal:  store.DeleteGoalFromTelegram,
 			DeleteMemory: store.DeleteMemoryFromTelegram,
 			GetMemory:    store.GetMemoryFromTelegram,
 			Search:       store.SearchFromTelegram,

@@ -319,11 +319,10 @@ func parseAgentResponse(raw string) (*AgentCommand, error) {
 // dispatchAgentCommand executes the command requested by the LLM agent.
 // Returns the text response to send back to the user.
 func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string {
-	if cmd.Answer != "" {
-		return cmd.Answer
-	}
-
 	if cmd.Call == "" {
+		if cmd.Answer != "" {
+			return cmd.Answer
+		}
 		// Neither answer nor call — nothing to dispatch
 		return ""
 	}
