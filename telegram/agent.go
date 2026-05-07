@@ -200,6 +200,27 @@ func parseAgentResponse(raw string) (*AgentCommand, error) {
 		return nil, fmt.Errorf("empty or trivial JSON response: %q", truncateText(raw, 80))
 	}
 
+	// ── Helper: try to parse any JSON object from text ──
+	// Looks for the outermost { ... }, unmarshals, and checks for valid command.
+	tryParseBraceJSON := func(text string) *AgentCommand {
+		braceStart := strings.Index(text, "{")
+		if braceStart < 0 {
+			return nil
+		}
+		braceEnd := strings.LastIndex(text, "}")
+		if braceEnd <= braceStart {
+			return nil
+		}
+		candidate := strings.TrimSpace(text[braceStart : braceEnd+1])
+		var cmd AgentCommand
+		if err := json.Unmarshal([]byte(candidate), &cmd); err == nil {
+			if cmd.Call != "" || cmd.Answer != "" {
+				return &cmd
+			}
+		}
+		return nil
+	}
+
 	// ── 0. Try direct JSON parse first (before any normalization) ──
 	var cmd AgentCommand
 	if err := json.Unmarshal([]byte(raw), &cmd); err == nil {
@@ -227,22 +248,16 @@ func parseAgentResponse(raw string) (*AgentCommand, error) {
 
 	// Try to parse the extracted JSON
 	if jsonStr != "" {
+		// Try direct parse first
 		var cmd AgentCommand
 		if err := json.Unmarshal([]byte(jsonStr), &cmd); err == nil {
 			if cmd.Call != "" || cmd.Answer != "" {
 				return &cmd, nil
 			}
 		}
-		// If JSON from fences failed to parse, try brace extraction on it
-		if braceStart := strings.Index(jsonStr, "{"); braceStart >= 0 {
-			if braceEnd := strings.LastIndex(jsonStr, "}"); braceEnd > braceStart {
-				candidate := jsonStr[braceStart : braceEnd+1]
-				if err := json.Unmarshal([]byte(candidate), &cmd); err == nil {
-					if cmd.Call != "" || cmd.Answer != "" {
-						return &cmd, nil
-					}
-				}
-			}
+		// If that fails, try brace extraction on fence content
+		if cmd := tryParseBraceJSON(jsonStr); cmd != nil {
+			return cmd, nil
 		}
 	}
 
@@ -255,15 +270,8 @@ func parseAgentResponse(raw string) (*AgentCommand, error) {
 	}
 
 	// ── 4. Find any JSON object { ... } in the full normalized text ──
-	if braceStart := strings.Index(normalized, "{"); braceStart >= 0 {
-		if braceEnd := strings.LastIndex(normalized, "}"); braceEnd > braceStart {
-			candidate := strings.TrimSpace(normalized[braceStart : braceEnd+1])
-			if err := json.Unmarshal([]byte(candidate), &cmd2); err == nil {
-				if cmd2.Call != "" || cmd2.Answer != "" {
-					return &cmd2, nil
-				}
-			}
-		}
+	if cmd := tryParseBraceJSON(normalized); cmd != nil {
+		return cmd, nil
 	}
 
 	// ── 5. Fallback: treat entire raw response as plain text answer ──
