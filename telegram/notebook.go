@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -251,59 +252,78 @@ func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) error 
 	// Send typing action to show we're working
 	b.sendChatAction(chatID)
 
-	// 1. Get context for the agent (relevant memories + goals)
-	contextStr := ""
-	if b.funcs.GetContext != nil {
-		jsonStr, err := b.funcs.GetContext(text, 5)
-		if err == nil {
-			var ctx ContextResult
-			if err := json.Unmarshal([]byte(jsonStr), &ctx); err == nil {
-				// Build a compact context string for the agent
-				if len(ctx.Goals) > 0 {
-					contextStr += "Active goals:\n"
-					for _, g := range ctx.Goals {
-						contextStr += fmt.Sprintf("- [%d%%] %s: %s\n", g.Progress, g.Title, g.Description)
+	// Determine if this looks like a greeting (short, no question words)
+	isGreeting := len(text) < 20 && isGreetingText(text, lang)
+
+	// Build user message (no context for greetings — avoids LLM repeating memory)
+	userMessage := text
+	if !isGreeting {
+		// Get context for the agent (relevant memories + goals)
+		if b.funcs.GetContext != nil {
+			jsonStr, err := b.funcs.GetContext(text, 5)
+			if err == nil {
+				var ctx ContextResult
+				if err := json.Unmarshal([]byte(jsonStr), &ctx); err == nil {
+					var contextStr string
+					if len(ctx.Goals) > 0 {
+						contextStr += "Active goals:\n"
+						for _, g := range ctx.Goals {
+							contextStr += fmt.Sprintf("- [%d%%] %s: %s\n", g.Progress, g.Title, g.Description)
+						}
 					}
-				}
-				if len(ctx.Memories) > 0 {
-					contextStr += "\nRecent memories:\n"
-					for i, mem := range ctx.Memories {
-						if i >= 3 {
-							break
+					if len(ctx.Memories) > 0 {
+						contextStr += "\nRecent memories:\n"
+						for i, mem := range ctx.Memories {
+							if i >= 3 {
+								break
+							}
+							summary := mem.Value.Summary
+							if summary == "" {
+								summary = truncateText(mem.Value.Content, 100)
+							}
+							if summary == "" {
+								summary = mem.Key
+							}
+							contextStr += fmt.Sprintf("- %s\n", summary)
 						}
-						summary := mem.Value.Summary
-						if summary == "" {
-							summary = truncateText(mem.Value.Content, 100)
-						}
-						if summary == "" {
-							summary = mem.Key
-						}
-						contextStr += fmt.Sprintf("- %s\n", summary)
+					}
+					if contextStr != "" {
+						userMessage += "\n\nCurrent context:\n" + contextStr
 					}
 				}
 			}
 		}
 	}
 
-	// 2. Build user message with context
-	userMessage := text
-	if contextStr != "" {
-		userMessage += "\n\nCurrent context:\n" + contextStr
-	}
-
-	// 3. Call the full LLM agent from agent.go
+	// Call the full LLM agent from agent.go
 	cmd, err := processWithLLMAgent(userMessage, lang, b.funcs)
 	if err != nil {
 		log.Printf("⚠ LLM agent error: %v", err)
 		return fmt.Errorf("agent failed: %w", err)
 	}
 
-	// 4. Dispatch the command
+	// Dispatch the command
 	result := dispatchAgentCommand(cmd, b.funcs, lang)
 	if result != "" {
 		b.sendText(chatID, result)
 	}
 	return nil
+}
+
+// isGreetingText checks if text is a greeting or casual short message.
+func isGreetingText(text string, lang string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	greetings := []string{
+		"привет", "здравствуй", "здрасте", "даров", "ку", "хай",
+		"hello", "hi", "hey", "good morning", "good evening",
+		"help", "хелп", "что ты умеешь", "what can you do",
+	}
+	for _, g := range greetings {
+		if t == g || strings.HasPrefix(t, g+" ") || strings.HasPrefix(t, g+"!") || strings.HasPrefix(t, g+"?") {
+			return true
+		}
+	}
+	return false
 }
 
 // handleTextClassifierFallback is the old classifier-based handler, kept as

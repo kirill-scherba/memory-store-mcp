@@ -45,9 +45,23 @@
 
 - [x] README updated with all features
 - [x] Unit tests for goals and LLM
+- [x] LLM agent for Telegram (structured JSON commands with fallback)
+- [x] Bot logging system with file rotation (stderr + file)
+- [x] Telegram assistant unit tests (mock-based, 810 lines)
+- [ ] `--debug` flag and log levels
 - [ ] Integration tests (end-to-end)
 - [ ] Performance benchmarks
 - [ ] Docker image for one-command deployment
+
+### Phase 5: Code Review & Testing — PLAN-002
+
+See [PLAN-002.md](PLAN-002.md) for the full plan.
+
+- [ ] Task 1: `--debug` flag and log levels
+- [ ] Task 2: Manual bot/LLM testing
+- [ ] Task 3: Automated Telegram bot tests
+- [ ] Task 4: Semantic e2e memory tests
+- [ ] Task 5: CI (Makefile) and docs
 
 ## Recent Commits (2026-05)
 
@@ -74,7 +88,7 @@
 ## Recently Removed
 
 - **PLAN-002-telegram.md** — removed because the Telegram bot is now fully implemented
-- **`os.Getenv` calls** — removed all environment variable reads except `TELEGRAM_ALLOWED_USERS`; all other config uses CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--telegram`)
+- **`os.Getenv` calls** — removed all environment variable reads except `TELEGRAM_ALLOWED_USERS`; all other config uses CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--telegram`)
 - **`--ollama-url` flag** — replaced with `--llm-url` (more descriptive; also supports non-Ollama LLM providers that mimic the Ollama API)
 
 ## Files
@@ -106,6 +120,9 @@
 | `digest.go` | Digest command handler |
 | `i18n.go` | Internationalisation: all translated strings, BotCommand descriptions |
 | `types.go` | Shared types: SearchResult, MemoryValue, Goal, TimelineEntry, Suggestion, ContextResult |
+| `agent.go` | LLM agent: structured JSON commands, rule-based fallback (graceful degradation) |
+| `assistant_test.go` | Unit tests for assistant commands and LLM agent (810 lines) |
+| `log.go` | Bot logger: stderr + file with rotation (10MB, 3 files), structured log helpers |
 
 ### `cmd/memory-cli/` directory
 
@@ -125,6 +142,15 @@
 | `suggest.go` | `memory suggest` subcommand |
 | `format.go` | Output formatting: json/table/summary with tabwriter, truncate, proxyStderrWithThinking |
 
+### `docs/` directory
+
+| File | Purpose |
+|------|---------|
+| `STATUS.md` | Current project status (this file) |
+| `DESIGN.md` | Architectural design and decisions |
+| `PLAN-001.md` | Phase 1-3 implementation plan (completed) |
+| `PLAN-002.md` | Phase 5 plan: logging, testing, CI |
+
 ## Known Issues
 
 1. **No integration tests** — unit tests cover goals, LLM, and Telegram assistant, but no end-to-end test with a real database
@@ -133,6 +159,7 @@
 4. **Ollama dependency** — semantic search and LLM features require a running Ollama instance; graceful degradation is in place but reduced functionality
 5. **BotFather commands** — bot commands are registered via API on every start; this is fine but could be made optional with a flag
 6. **```json fences** — qwen2.5-coder:7b wraps JSON in ```json in ~40% of responses; parseAgentResponse handles this via 5 fallback strategies
+7. **No `--debug` flag** — bot logs always go to both stderr and file; no verbosity levels
 
 ## Recent Fixes (uncommitted)
 
@@ -141,3 +168,8 @@
 - **Bug #5**: Digest skipped entries without Summary — changed to `Summary → Content → Key` fallback
 - **Bug #6**: Duplicate code block in `notebook.go` — removed 14-line identical block
 - **Bug #7**: `formatTimelineResults` showed empty lines — added content/key fallback + calendar emoji
+
+## Next Steps (PLAN-002)
+
+Start with **Task 1**: Add `--debug` flag and log levels to `telegram/log.go` and `main.go`.
+See [PLAN-002.md](PLAN-002.md) for details.

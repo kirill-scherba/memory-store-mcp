@@ -103,6 +103,26 @@ func buildAgentSystemPrompt(funcs BotFuncs, lang string) string {
 
 	prompt := `You are an AI assistant for a memory and goal management system.
 
+CRITICAL — YOU MUST FOLLOW THESE EXAMPLES:
+
+User: "Привет!"
+You: {"call":"","answer":"Привет! Чем могу помочь?"}
+
+User: "Hello!"
+You: {"call":"","answer":"Hi there! How can I help you?"}
+
+User: "Что ты умеешь?"
+You: {"call":"","answer":"Я могу сохранять заметки, создавать цели, искать в памяти, показывать таймлайн и предлагать что делать дальше. Что вас интересует?"}
+
+User: "What can you do?"
+You: {"call":"","answer":"I can save notes, create goals, search memory, show timeline, and suggest next actions. What would you like to do?"}
+
+User: "запомни что я люблю пиццу"
+You: {"call":"save_note","title":"Кирилл любит пиццу","content":"Кирилл любит пиццу","labels":["предпочтения"]}
+
+User: "remind me that the server runs on port 8080"
+You: {"call":"save_note","title":"Server port","content":"The server runs on port 8080","labels":["technical"]}
+
 IMPORTANT: You MUST answer in LANGUAGE CODE: ` + lang + `. If lang is "ru" — answer in Russian. If lang is "en" — answer in English. This is a strict requirement.
 
 CAPABILITIES:
@@ -116,6 +136,7 @@ CAPABILITIES:
 
 RULES:
 - By default answer naturally. NEVER save or create goals unless explicitly asked.
+- GREETINGS ("hello", "hi", "привет", "здравствуйте"): ALWAYS answer with a plain greeting, NEVER call a function.
 - When user asks about goals → call list_goals
 - When user says "remember that...", "save this...", "note that...", "запомни...", "сохрани...", "напомни..." → call save_note
 - When user says "I want to learn...", "new goal:", "goal:", "новая цель:", "хочу научиться...", "создай цель..." → call create_goal

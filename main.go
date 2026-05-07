@@ -36,9 +36,11 @@ func main() {
 	dbPath := flag.String("db", "",
 		"Path to the database (default: ~/.config/memory-store-mcp/memory.db)")
 	chatModel := flag.String("chat-model", defaultLLMModel,
-		"Ollama chat model for extraction/suggest")
+		"LLM chat model for extraction/suggest")
 	llmURL := flag.String("llm-url", ollamaBaseURL,
 		"LLM API base URL (default: http://localhost:11434)")
+	llmAPIKey := flag.String("llm-api-key", "",
+		"LLM API key for OpenAI-compatible APIs (e.g. OpenRouter, OpenAI)")
 	telegramToken := flag.String("telegram", "",
 		"Telegram bot token (enables Telegram bot mode)")
 	showHelp := flag.Bool("h", false, "Show help")
@@ -59,6 +61,21 @@ func main() {
 
 	// Set LLM URL override (--llm-url flag)
 	setLLMURL(*llmURL)
+
+	// Set LLM API key (--llm-api-key flag)
+	// Supports:
+	//   - plain text: "sk-or-..."
+	//   - file: prefix: "file:/path/to/keyfile"
+	key := *llmAPIKey
+	if strings.HasPrefix(key, "file:") {
+		keyPath := strings.TrimPrefix(key, "file:")
+		keyData, err := os.ReadFile(keyPath)
+		if err != nil {
+			log.Fatalf("Failed to read LLM API key from %s: %v", keyPath, err)
+		}
+		key = strings.TrimSpace(string(keyData))
+	}
+	setLLMAPIKey(key)
 
 	// Default db path
 	if *dbPath == "" {
@@ -86,6 +103,15 @@ func main() {
 	log.Printf("   DB path:        %s", *dbPath)
 	log.Printf("   LLM URL:        %s", llmBaseURL())
 	log.Printf("   LLM chat model: %s", *chatModel)
+	if key != "" {
+		masked := key
+		if len(masked) > 8 {
+			masked = masked[:4] + "****" + masked[len(masked)-4:]
+		} else if len(masked) > 0 {
+			masked = "****"
+		}
+		log.Printf("   LLM API key:    %s", masked)
+	}
 
 	// System instructions for the AI assistant
 	sysInstructions := `# Memory Store MCP — Persistent AI Memory System
