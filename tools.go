@@ -38,16 +38,29 @@ func tools(s *Storage) []server.ServerTool {
 // memorySaveTool saves a memory with auto-generated embedding and optional auto-key.
 func memorySaveTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_save",
-		mcp.WithDescription("Save a memory with auto-generated embedding for semantic search. Supports auto-key generation."),
+		mcp.WithDescription(`Use for MANUAL structured facts. For auto-extraction from conversation, prefer memory_extract.
+Save a memory with auto-generated embedding for semantic search. Supports auto-key generation.
+
+Key pattern: memory/project/<name>/<category>/<id>
+Examples:
+  memory/project/cooksy/architecture/overview
+  memory/project/ai-hub/features/tool-generation
+  memory/user/kirill/preferences/editor
+
+value (string) — structured, machine-readable data (JSON-like).
+  Used for: configs, status flags, key-value facts.
+text (string) — long-form content for semantic search embeddings.
+  Used for: notes, observations, documentation, conversation summaries.
+  If both provided: value = metadata, text = searchable content.`),
 		mcp.WithString("key",
-			mcp.Description("Hierarchical key (e.g. memory/project/cooksy/architecture). Optional if auto_key=true."),
+			mcp.Description("Hierarchical key (e.g. memory/project/cooksy/architecture). Optional if auto_key=true. Pattern: memory/project/<name>/<category>/<id>"),
 		),
 		mcp.WithString("value",
-			mcp.Description("JSON value with content, summary, tags, source, timestamp, status, priority, goal_id"),
+			mcp.Description("JSON value with content, summary, tags, source, timestamp, status, priority, goal_id. Structured data for machine reading."),
 			mcp.Required(),
 		),
 		mcp.WithString("text",
-			mcp.Description("Text to generate embedding for semantic search"),
+			mcp.Description("Text for embedding + semantic search. Long-form content (notes, docs, observations). Combined with value as metadata."),
 			mcp.Required(),
 		),
 		mcp.WithBoolean("auto_key",
@@ -149,7 +162,10 @@ func memoryDeleteTool(s *Storage) server.ServerTool {
 func memorySearchTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_search",
 		mcp.WithDescription(`Semantic search across memories. Finds relevant memories by meaning,
-not just keywords. Uses Ollama embeddings for vector similarity.`),
+not just keywords. Uses Ollama embeddings for vector similarity.
+
+Use for FINDING specific information you know exists.
+For session overview / "what do we have", prefer memory_get_context.`),
 		mcp.WithString("query",
 			mcp.Description("Search query describing what you're looking for"),
 			mcp.Required(),
