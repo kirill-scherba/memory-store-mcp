@@ -53,6 +53,8 @@
 
 | Date | Commit | Description |
 |------|--------|-------------|
+| 2026-05-07 | `1f982c5` | fix: swap phi4-mini → qwen2.5-coder:7b, refactor brace JSON parsing |
+| 2026-05-07 | *uncommitted* | fix: add fallback key display, digest Summary→Content→Key chain, safe CreatedAt truncation, remove duplicate code in notebook.go |
 | 2026-05-06 | `11d8542` | Return raw key for Telegram notes |
 | 2026-05-06 | `e18bba6` | Add unit tests for helpers |
 | 2026-05-06 | `075fa9a` | Clarify Telegram access env |
@@ -130,3 +132,12 @@
 3. **No Dockerfile** — currently requires manual Go build; no containerised deployment
 4. **Ollama dependency** — semantic search and LLM features require a running Ollama instance; graceful degradation is in place but reduced functionality
 5. **BotFather commands** — bot commands are registered via API on every start; this is fine but could be made optional with a flag
+6. **```json fences** — qwen2.5-coder:7b wraps JSON in ```json in ~40% of responses; parseAgentResponse handles this via 5 fallback strategies
+
+## Recent Fixes (uncommitted)
+
+- **Bug #3**: Empty titles in formatters — added `Key` fallback chain: `Summary → Content → Key` in all 6 formatters
+- **Bug #4**: Potential panic `slice bounds out of range` — added length check before `CreatedAt[:10]` in `extraction.go` and `main.go`
+- **Bug #5**: Digest skipped entries without Summary — changed to `Summary → Content → Key` fallback
+- **Bug #6**: Duplicate code block in `notebook.go` — removed 14-line identical block
+- **Bug #7**: `formatTimelineResults` showed empty lines — added content/key fallback + calendar emoji

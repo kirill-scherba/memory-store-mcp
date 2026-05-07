@@ -146,7 +146,11 @@ func (b *Bot) handleQuestion(msg *tgbotapi.Message, cls *ClassificationResult, l
 		if summary == "" {
 			summary = truncateText(mem.Value.Content, 100)
 		}
+		if summary == "" {
+			summary = mem.Key
+		}
 		sb.writef("%d. <b>%s</b>\n", i+1, escapeHTML(summary))
+		sb.writef("   🔑 %s\n", mem.Key)
 		if len(mem.Value.Tags) > 0 {
 			sb.writef("   🏷 %s\n", formatLabels(mem.Value.Tags))
 		}
@@ -197,7 +201,11 @@ func (b *Bot) handleQuestionWithLLM(msg *tgbotapi.Message, cls *ClassificationRe
 			if summary == "" {
 				summary = truncateText(mem.Value.Content, 100)
 			}
+			if summary == "" {
+				summary = mem.Key
+			}
 			sb.writef("%d. <b>%s</b>\n", i+1, escapeHTML(summary))
+			sb.writef("   🔑 %s\n", mem.Key)
 			if len(mem.Value.Tags) > 0 {
 				sb.writef("   🏷 %s\n", formatLabels(mem.Value.Tags))
 			}
@@ -257,19 +265,22 @@ func (b *Bot) handleTextWithAgent(text string, chatID int64, lang string) error 
 						contextStr += fmt.Sprintf("- [%d%%] %s: %s\n", g.Progress, g.Title, g.Description)
 					}
 				}
-				if len(ctx.Memories) > 0 {
-					contextStr += "\nRecent memories:\n"
-					for i, mem := range ctx.Memories {
-						if i >= 3 {
-							break
-						}
-						summary := mem.Value.Summary
-						if summary == "" {
-							summary = truncateText(mem.Value.Content, 100)
-						}
-						contextStr += fmt.Sprintf("- %s\n", summary)
+			if len(ctx.Memories) > 0 {
+				contextStr += "\nRecent memories:\n"
+				for i, mem := range ctx.Memories {
+					if i >= 3 {
+						break
 					}
+					summary := mem.Value.Summary
+					if summary == "" {
+						summary = truncateText(mem.Value.Content, 100)
+					}
+					if summary == "" {
+						summary = mem.Key
+					}
+					contextStr += fmt.Sprintf("- %s\n", summary)
 				}
+			}
 			}
 		}
 	}

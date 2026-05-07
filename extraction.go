@@ -159,8 +159,12 @@ func (s *Storage) GetContextForInjection(query string, limit int) (string, error
 	if len(ctx.Memories) > 0 {
 		parts = append(parts, "=== Relevant memories ===")
 		for i, mem := range ctx.Memories {
+			date := mem.CreatedAt
+			if len(date) > 10 {
+				date = date[:10]
+			}
 			parts = append(parts, fmt.Sprintf("%d. [%s] %s (score: %.2f)",
-				i+1, mem.CreatedAt[:10], mem.Value.Content, mem.Score))
+				i+1, date, mem.Value.Content, mem.Score))
 			if mem.Value.Summary != "" {
 				parts = append(parts, fmt.Sprintf("   Summary: %s", mem.Value.Summary))
 			}

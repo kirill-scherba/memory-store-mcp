@@ -61,10 +61,14 @@ func (b *Bot) cmdDigest(msg *tgbotapi.Message, lang string) {
 	var contentItems []string
 
 	for _, e := range entries {
-		if e.Value.Summary == "" {
-			continue
+		summary := e.Value.Summary
+		if summary == "" {
+			summary = e.Value.Content
 		}
-		contentItems = append(contentItems, e.Value.Summary)
+		if summary == "" {
+			summary = e.Key
+		}
+		contentItems = append(contentItems, summary)
 	}
 	noteCount = len(contentItems)
 

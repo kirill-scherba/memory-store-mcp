@@ -176,11 +176,14 @@ func formatTimelineResults(entries []TimelineEntry, lang string) string {
 		if summary == "" {
 			summary = truncateText(e.Value.Content, 60)
 		}
+		if summary == "" {
+			summary = e.Key
+		}
 		date := e.CreatedAt
 		if len(date) > 10 {
 			date = date[:10]
 		}
-		reply += fmt.Sprintf("%d. [%s] <b>%s</b>\n   %s\n\n",
+		reply += fmt.Sprintf("%d. [%s] <b>%s</b>\n   🔑 %s\n\n",
 			i+1, date, escapeHTML(summary), escapeHTML(e.Key))
 	}
 	if len(reply) > 4000 {
@@ -255,8 +258,11 @@ func formatContextResult(ctx ContextResult, lang string) string {
 			if summary == "" {
 				summary = truncateText(m.Value.Content, 80)
 			}
-			reply += fmt.Sprintf("%d. <b>%s</b> (%.0f%%)\n   📅 %s\n\n",
-				i+1, escapeHTML(summary), m.Score*100, m.CreatedAt)
+			if summary == "" {
+				summary = m.Key
+			}
+			reply += fmt.Sprintf("%d. <b>%s</b> (%.0f%%)\n   📅 %s\n   🔑 %s\n\n",
+				i+1, escapeHTML(summary), m.Score*100, m.CreatedAt, m.Key)
 		}
 	}
 

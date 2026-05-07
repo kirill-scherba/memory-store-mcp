@@ -254,7 +254,11 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 		if err == nil && len(timeline) > 0 {
 			timelineText := "\n\n## Recent Activity\n"
 			for _, e := range timeline {
-				timelineText += fmt.Sprintf("- [%s] %s: %s\n", e.CreatedAt[:10], e.Key, truncate(e.Value.Content, 80))
+				date := e.CreatedAt
+				if len(date) > 10 {
+					date = date[:10]
+				}
+				timelineText += fmt.Sprintf("- [%s] %s: %s\n", date, e.Key, truncate(e.Value.Content, 80))
 			}
 			text += timelineText
 		}
