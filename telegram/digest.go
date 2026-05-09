@@ -33,7 +33,13 @@ func (b *Bot) cmdDigest(msg *tgbotapi.Message, lang string) {
 		}
 	}
 
-	b.sendText(msg.Chat.ID, fmt.Sprintf(t("digest_loading", lang), period))
+	periodLabel := map[string]string{
+		"day":   t("digest_period_day", lang),
+		"week":  t("digest_period_week", lang),
+		"month": t("digest_period_month", lang),
+	}[period]
+
+	b.sendText(msg.Chat.ID, fmt.Sprintf(t("digest_loading", lang), periodLabel))
 
 	// Get timeline for the period
 	jsonStr, err := b.funcs.GetTimeline("", "", limit)
@@ -85,10 +91,10 @@ func (b *Bot) cmdDigest(msg *tgbotapi.Message, lang string) {
 
 	// Build digest
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("<b>📊 %s %s</b>\n\n", t("digest_title_prefix", lang), period))
-	sb.WriteString(fmt.Sprintf("📝 <b>%s</b> %d\n", t("digest_notes_label", lang), noteCount))
-	sb.WriteString(fmt.Sprintf("🎯 <b>%s</b> %d\n", t("digest_goals_label", lang), goalCount))
-	sb.WriteString(fmt.Sprintf("🔍 <b>%s</b> %d\n\n", t("digest_events_label", lang), len(entries)))
+	fmt.Fprintf(&sb, "<b>📊 %s %s</b>\n\n", t("digest_title_prefix", lang), periodLabel)
+	fmt.Fprintf(&sb, "📝 <b>%s</b> %d\n", t("digest_notes_label", lang), noteCount)
+	fmt.Fprintf(&sb, "🎯 <b>%s</b> %d\n", t("digest_goals_label", lang), goalCount)
+	fmt.Fprintf(&sb, "🔍 <b>%s</b> %d\n\n", t("digest_events_label", lang), len(entries))
 
 	if len(contentItems) > 0 {
 		sb.WriteString(fmt.Sprintf("<b>%s</b>\n", t("digest_recent_label", lang)))

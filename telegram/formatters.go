@@ -160,7 +160,7 @@ func formatSearchResults(results []SearchResult, lang string) string {
 		if content != "" {
 			reply += fmt.Sprintf("   %s\n", escapeHTML(truncateText(content, 200)))
 		}
-		reply += fmt.Sprintf("   🔑 %s  (%.0f%%)\n\n", escapeHTML(r.Key), r.Score*100)
+		reply += fmt.Sprintf("   🔑 <code>%s</code>  (%.0f%%)\n\n", escapeHTML(r.Key), r.Score*100)
 	}
 	if len(reply) > 4000 {
 		reply = reply[:4000] + "\n..."

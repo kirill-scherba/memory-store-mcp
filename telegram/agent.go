@@ -580,7 +580,7 @@ func dispatchAgentCommand(cmd *AgentCommand, funcs BotFuncs, lang string) string
 		}
 		limit := cmd.Limit
 		if limit <= 0 {
-			limit = 5
+			limit = 5 
 		}
 		suggestJSON, err := funcs.Suggest(cmd.Query, limit, lang)
 		if err != nil {

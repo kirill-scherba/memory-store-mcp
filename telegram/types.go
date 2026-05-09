@@ -14,10 +14,11 @@ type SearchResult struct {
 
 // MemoryValue is the parsed JSON content of a stored memory.
 type MemoryValue struct {
-	Content string   `json:"content,omitempty"`
-	Summary string   `json:"summary,omitempty"`
-	Tags    []string `json:"tags,omitempty"`
-	Source  string   `json:"source,omitempty"`
+	Content   string   `json:"content,omitempty"`
+	Summary   string   `json:"summary,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
+	Source    string   `json:"source,omitempty"`
+	Timestamp string   `json:"timestamp,omitempty"`
 }
 
 // Goal represents a tracked goal.

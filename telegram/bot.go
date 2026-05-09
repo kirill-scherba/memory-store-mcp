@@ -61,7 +61,7 @@ type Bot struct {
 	mu           sync.RWMutex
 	userLang     map[int64]string // chatID -> language code ("ru"/"en")
 
-	debugMode     bool   // debug mode — captures responses instead of sending to Telegram
+	debugMode     bool // debug mode — captures responses instead of sending to Telegram
 	debugResponse string
 	debugMu       sync.Mutex
 }
@@ -108,8 +108,8 @@ func (b *Bot) setCommands() error {
 
 	for _, lc := range []langCmds{
 		{lang: "ru", cmds: toTgCommands(commandDescriptions("ru"))},
-		{lang: "en", cmds: toTgCommands(commandDescriptions("en"))},
-		{lang: "", cmds: toTgCommands(commandDescriptions("en"))}, // default fallback
+		{lang: "en", cmds: toTgCommands(commandDescriptions("ru"))},
+		{lang: "", cmds: toTgCommands(commandDescriptions("ru"))}, // default fallback
 	} {
 		cfg := tgbotapi.NewSetMyCommands(lc.cmds...)
 		if lc.lang != "" {
@@ -228,9 +228,11 @@ func (b *Bot) detectAndSetLang(msg *tgbotapi.Message) {
 func (b *Bot) getLang(chatID int64) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
 	if lang, ok := b.userLang[chatID]; ok {
 		return lang
 	}
+
 	return "ru"
 }
 
@@ -243,13 +245,19 @@ func (b *Bot) setLang(chatID int64, lang string) {
 
 // handleCommand processes bot commands (/search, /goals, etc.)
 func (b *Bot) handleCommand(msg *tgbotapi.Message) {
-	lang := b.getLang(msg.Chat.ID)
 
-	switch msg.Command() {
+	lang := b.getLang(msg.Chat.ID)
+	// lang = strings.ToLower("ru")
+	cmd := msg.Command()
+	log.Printf("🤖 Command: %s, lang=%s\n", msg.Command(), lang)
+
+	switch cmd {
 	case "start", "help":
 		b.cmdHelp(msg, lang)
 	case "search":
 		b.cmdSearch(msg, lang)
+	case "memory":
+		b.cmdMemory(msg, lang)
 	case "goals":
 		b.cmdGoals(msg, lang)
 	case "goal":
@@ -274,8 +282,9 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 func (b *Bot) cmdLanguage(msg *tgbotapi.Message, lang string) {
 	args := strings.TrimSpace(msg.CommandArguments())
 	if args == "" {
-		b.sendText(msg.Chat.ID, fmt.Sprintf(t("language_usage", lang), lang))
-		return
+		// b.sendText(msg.Chat.ID, fmt.Sprintf(t("language_usage", lang), lang))
+		// return
+		args = "ru" // default lang
 	}
 
 	args = strings.ToLower(strings.TrimSpace(args))
@@ -295,7 +304,7 @@ func (b *Bot) cmdHelp(msg *tgbotapi.Message, lang string) {
 
 // buildHelp builds the help message for the given language.
 func (b *Bot) buildHelp(lang string) string {
-	help := t("help_title", lang)
+	var help strings.Builder; help.WriteString(t("help_title", lang))
 	cmds := commandDescriptions(lang)
 
 	// Sort alphabetically for consistent output
@@ -306,9 +315,9 @@ func (b *Bot) buildHelp(lang string) string {
 	})
 
 	for _, c := range sorted {
-		help += fmt.Sprintf("/%s — %s\n", c.Command, c.Description)
+		fmt.Fprintf(&help, "/%s — %s\n", c.Command, c.Description)
 	}
-	return help
+	return help.String()
 }
 
 // sendText sends a plain text message with HTML parse mode.

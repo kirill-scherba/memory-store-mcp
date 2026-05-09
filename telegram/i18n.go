@@ -242,6 +242,26 @@ var i18n = i18nMap{
 		"ru": "<b>Последние записи:</b>\n",
 		"en": "<b>Recent entries:</b>\n",
 	},
+	"digest_title_prefix": {
+		"ru": "Сводка за",
+		"en": "Summary for",
+	},
+	"digest_notes_label": {
+		"ru": "Заметки",
+		"en": "Notes",
+	},
+	"digest_goals_label": {
+		"ru": "Активных целей:",
+		"en": "Active goals:",
+	},
+	"digest_events_label": {
+		"ru": "Всего событий:",
+		"en": "Total events:",
+	},
+	"digest_recent_label": {
+		"ru": "Последние записи:",
+		"en": "Recent entries:",
+	},
 
 	// ── Language command ───────────────────────────────────
 	"language_usage": {
@@ -261,6 +281,24 @@ var i18n = i18nMap{
 	"access_denied": {
 		"ru": "⛔ Доступ запрещён. Этот бот предназначен только для авторизованных пользователей.",
 		"en": "⛔ Access denied. This bot is for authorised users only.",
+	},
+
+	// ── Memory command ─────────────────────────────────────
+	"memory_usage": {
+		"ru": "ℹ️ Использование: /memory <ключ>\nНапример: /memory memory/auto/2026-05-06/932d3dd3",
+		"en": "ℹ️ Usage: /memory <key>\nExample: /memory memory/auto/2026-05-06/932d3dd3",
+	},
+	"memory_error": {
+		"ru": "❌ Ошибка: %v",
+		"en": "❌ Error: %v",
+	},
+	"memory_not_found": {
+		"ru": "🤷 Запись не найдена.",
+		"en": "🤷 Memory not found.",
+	},
+	"memory_parse_error": {
+		"ru": "❌ Ошибка при обработке записи.",
+		"en": "❌ Error processing memory.",
 	},
 
 	// ── Help ───────────────────────────────────────────────
@@ -301,6 +339,10 @@ func commandDescriptions(lang string) []BotCommand {
 			"ru": "Семантический поиск по памяти",
 			"en": "Semantic search across memory",
 		},
+		"memory": {
+			"ru": "Просмотр записи по ключу",
+			"en": "View memory entry by key",
+		},
 		"goals": {
 			"ru": "Список активных целей",
 			"en": "List active goals",
@@ -335,6 +377,7 @@ func commandDescriptions(lang string) []BotCommand {
 		{Command: "start", Description: desc["start"][lang]},
 		{Command: "help", Description: desc["help"][lang]},
 		{Command: "search", Description: desc["search"][lang]},
+		{Command: "memory", Description: desc["memory"][lang]},
 		{Command: "goals", Description: desc["goals"][lang]},
 		{Command: "goal", Description: desc["goal"][lang]},
 		{Command: "timeline", Description: desc["timeline"][lang]},

@@ -112,9 +112,7 @@ func (b *Bot) cmdTimeline(msg *tgbotapi.Message, lang string) {
 // cmdSuggest handles /suggest — proactive suggestions.
 func (b *Bot) cmdSuggest(msg *tgbotapi.Message, lang string) {
 	b.sendText(msg.Chat.ID, t("suggest_thinking", lang))
-
-	// Include language preference in the context so LLM generates in the right language
-	context := fmt.Sprintf("telegram user request (language: %s)", lang)
+	context := "telegram user request: /suggest"
 	jsonStr, err := b.funcs.Suggest(context, 5, lang)
 	if err != nil {
 		log.Printf("⚠ Suggest error: %v", err)

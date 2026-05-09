@@ -693,7 +693,6 @@ Recent activity:
 Return a JSON array of suggestions. Each suggestion has: type (reminder/followup/goal_next_step/insight), title, description, priority (0-10).`, limit, currentContext, strings.Join(goalLines, "\n"), strings.Join(recentLines, "\n"))
 
 	suggestPrompt := SuggestPrompt(prompt)
-
 	sysPrompt := suggestSystemPrompt(lang)
 	msg := []OllamaChatMessage{
 		{Role: "system", Content: sysPrompt},
