@@ -273,8 +273,8 @@ func formatContextResult(ctx ContextResult, lang string) string {
 			if summary == "" {
 				summary = m.Key
 			}
-			reply += fmt.Sprintf("%d. <b>%s</b> (%.0f%%)\n   📅 %s\n   🔑 %s\n\n",
-				i+1, escapeHTML(summary), m.Score*100, m.CreatedAt, m.Key)
+		reply += fmt.Sprintf("%d. <b>%s</b> (%.0f%%)\n   📅 %s\n   🔑 <code>%s</code>\n\n",
+			i+1, escapeHTML(summary), m.Score*100, m.CreatedAt, escapeHTML(m.Key))
 		}
 	}
 
