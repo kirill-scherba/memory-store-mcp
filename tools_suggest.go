@@ -25,6 +25,7 @@ Analyzes active goals + timeline + recent memories to recommend next actions.`),
 		mcp.WithString("context",
 			mcp.Description("Current conversation context for analysis"),
 		),
+		mcp.WithString("lang", mcp.Description("Language code: 'ru' or 'en' (default: 'en')")),
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of suggestions (default: 5, max: 10)"),
 		),
@@ -40,6 +41,9 @@ Analyzes active goals + timeline + recent memories to recommend next actions.`),
 			}
 
 			lang := "en"
+			if v, ok := args["lang"].(string); ok {
+				lang = v
+			}
 
 			limit := 5
 			if v, ok := args["limit"].(float64); ok {

@@ -111,6 +111,7 @@ func (b *Bot) cmdTimeline(msg *tgbotapi.Message, lang string) {
 
 // cmdSuggest handles /suggest — proactive suggestions.
 func (b *Bot) cmdSuggest(msg *tgbotapi.Message, lang string) {
+	
 	b.sendText(msg.Chat.ID, t("suggest_thinking", lang))
 	context := "telegram user request: /suggest"
 	jsonStr, err := b.funcs.Suggest(context, 5, lang)
@@ -126,6 +127,7 @@ func (b *Bot) cmdSuggest(msg *tgbotapi.Message, lang string) {
 		b.sendText(msg.Chat.ID, t("suggest_parse_error", lang))
 		return
 	}
+	log.Printf("Suggestions: %v", suggestions)
 
 	reply := formatSuggestions(suggestions, lang)
 	b.sendText(msg.Chat.ID, reply)

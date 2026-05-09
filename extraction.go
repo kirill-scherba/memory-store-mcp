@@ -91,6 +91,11 @@ func suggestSystemPrompt(lang string) string {
 	// [{"type":"goal_next_step","title":"Настроить CI/CD пайплайн","description":"Вы обсуждали настройку CI/CD для Cooksy. Хорошим следующим шагом будет определить workflow развёртывания.","priority":8}]`
 	// 	}
 
+	var additional string
+	if lang == "ru" {
+		additional = "\n\nВАЖНОЕ ПРАВИЛО: Все заголовки и описания должны быть на РУССКОМ языке."
+	}
+
 	return `You are a proactive assistant that analyses context and goals to suggest next steps.
 Return ONLY a JSON array of suggestion objects. Each suggestion has:
 - type: one of "reminder", "followup", "goal_next_step", "insight"
@@ -99,7 +104,7 @@ Return ONLY a JSON array of suggestion objects. Each suggestion has:
 - priority: integer 0-10
 
 Example:
-[{"type":"goal_next_step","title":"Setup CI/CD pipeline","description":"You discussed setting up CI/CD for Cooksy. A good next step would be to define the deployment workflow.","priority":8}]`
+[{"type":"goal_next_step","title":"Setup CI/CD pipeline","description":"You discussed setting up CI/CD for Cooksy. A good next step would be to define the deployment workflow.","priority":8}]`+additional
 }
 
 // SuggestPrompt builds a structured prompt for the suggest LLM call.
