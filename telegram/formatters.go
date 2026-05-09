@@ -195,7 +195,7 @@ func formatTimelineResults(entries []TimelineEntry, lang string) string {
 		if len(date) > 10 {
 			date = date[:10]
 		}
-		reply += fmt.Sprintf("%d. [%s] <b>%s</b>\n   🔑 %s\n\n",
+		reply += fmt.Sprintf("%d. [%s] <b>%s</b>\n   🔑 <code>%s</code>\n\n",
 			i+1, date, escapeHTML(summary), escapeHTML(e.Key))
 	}
 	if len(reply) > 4000 {
