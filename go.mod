@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/kirill-scherba/keyvalembd v0.0.2
+	github.com/kirill-scherba/keyvalembd v0.1.0
 	github.com/mark3labs/mcp-go v0.49.0
 	github.com/spf13/cobra v0.0.5
 	github.com/tursodatabase/go-libsql v0.0.0-20260424063416-3051e37e6e04
