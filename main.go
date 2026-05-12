@@ -22,8 +22,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -382,9 +385,25 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 	if *httpAddr != "" {
 		log.Printf("🌐 Starting MCP StreamableHTTP server on %s", *httpAddr)
 		log.Printf("   HTTP endpoint:   %s/mcp", *httpAddr)
+
+		// Start the HTTP server in a goroutine
 		httpServer := server.NewStreamableHTTPServer(s)
-		if err := httpServer.Start(*httpAddr); err != nil {
-			log.Fatalf("HTTP server error: %v", err)
+		go func() {
+			if err := httpServer.Start(*httpAddr); err != nil {
+				log.Fatalf("HTTP server error: %v", err)
+			}
+		}()
+
+		// Wait for SIGINT or SIGTERM, then graceful shutdown
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-sigCh
+		log.Printf("🛑 Received signal %v, shutting down...", sig)
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("⚠ HTTP shutdown error: %v", err)
 		}
 	} else {
 		log.Printf("   Transport:       stdin/stdout (JSON-RPC 2.0)")
