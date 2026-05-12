@@ -4,6 +4,10 @@
 
 Long-term memory for AI assistants that survives sessions. Store facts, observations, goals, and knowledge — find them later by meaning, not just keywords. The assistant automatically saves context and injects relevant memories before each response.
 
+Supports two transport modes:
+- **stdin/stdout** (default) — JSON-RPC 2.0 over standard I/O, ideal for local MCP integration
+- **HTTP/SSE** (via `--http` flag) — HTTP server with Server-Sent Events, ideal for remote clients and multi-client access
+
 ## Quick Start
 
 ```bash
@@ -115,6 +119,10 @@ Options:
         Ollama chat model for extraction/suggest (default: phi4-mini)
   -llm-url string
         LLM API base URL (default: http://localhost:11434)
+  -llm-api-key string
+        LLM API key for OpenAI-compatible APIs (e.g. OpenRouter, OpenAI)
+  -http string
+        HTTP listen address (enables HTTP/SSE transport, e.g. :8080)
   -telegram string
         Telegram bot token (enables Telegram bot mode)
   -h    Show help
@@ -173,6 +181,72 @@ echo '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"memory_tim
 echo '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"memory_search","arguments":{"query":"What architecture decisions were made?","limit":5}}}' | memory-store-mcp
 ```
 
+### HTTP/SSE mode
+
+Start the server in HTTP mode:
+
+```bash
+# Start with HTTP/SSE transport on port 8080
+memory-store-mcp --http :8080
+
+# Or with custom LLM settings
+memory-store-mcp --http :8080 --chat-model qwen2.5-coder:7b --llm-url http://localhost:11434
+```
+
+Once running, clients connect via SSE. Example using `curl` to list tools:
+
+```bash
+# List available tools via the message endpoint
+curl -X POST http://localhost:8080/message \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Save a memory via HTTP:
+
+```bash
+curl -X POST http://localhost:8080/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "memory_save",
+      "arguments": {
+        "auto_key": true,
+        "value": "{\"content\":\"HTTP mode test\",\"summary\":\"Test entry via HTTP\",\"tags\":[\"test\",\"http\"]}",
+        "text": "Testing the HTTP/SSE transport mode"
+      }
+    }
+  }'
+```
+
+Search via HTTP:
+
+```bash
+curl -X POST http://localhost:8080/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "memory_search",
+      "arguments": {
+        "query": "HTTP mode test",
+        "limit": 5
+      }
+    }
+  }'
+```
+
+Connect to SSE stream:
+
+```bash
+curl -N http://localhost:8080/sse
+```
+
 ## Memory Value Format
 
 ```json
@@ -224,6 +298,8 @@ echo '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"memory_sea
 
 ## MCP Integration
 
+### stdin/stdout mode (default)
+
 To use this server with an MCP-enabled AI assistant, add it to your MCP config:
 
 ```json
@@ -236,6 +312,36 @@ To use this server with an MCP-enabled AI assistant, add it to your MCP config:
   }
 }
 ```
+
+### HTTP/SSE mode (remote clients)
+
+For remote access or multi-client scenarios, run the server in HTTP mode and configure the client to connect via SSE:
+
+```json
+{
+  "mcpServers": {
+    "memory-store-mcp": {
+      "command": "memory-store-mcp",
+      "args": ["--http", ":8080", "--chat-model", "phi4-mini", "--llm-url", "http://localhost:11434"]
+    }
+  }
+}
+```
+
+Then configure your MCP client to connect to the HTTP endpoint:
+
+```json
+{
+  "mcpServers": {
+    "memory-store-mcp": {
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
+```
+
+> **Note:** When using HTTP/SSE mode, the `memory-store-mcp` process runs as a standalone HTTP server. Unlike stdin/stdout mode, it does not need to be spawned as a subprocess per client — multiple clients can connect to the same server instance.
 
 ## License
 
