@@ -11,14 +11,14 @@ import (
 )
 
 func newDeleteCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 
 	cmd := &cobra.Command{
 		Use:   "delete <key>",
 		Short: "Delete a memory by its key. Also removes its embedding.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -37,6 +37,7 @@ func newDeleteCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 
 	return cmd
 }

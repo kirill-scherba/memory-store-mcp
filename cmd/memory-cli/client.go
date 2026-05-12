@@ -18,7 +18,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// memoryClient wraps an MCP stdio client to memory-store-mcp server.
+// memoryClient wraps an MCP client (stdio or HTTP) to memory-store-mcp server.
 type memoryClient struct {
 	cl    *client.Client
 	ctx   context.Context
@@ -26,35 +26,55 @@ type memoryClient struct {
 }
 
 // newMemoryClient creates and initializes a client connected to memory-store-mcp.
-func newMemoryClient(dbPath, chatModel string) (*memoryClient, error) {
-	// Find memory-store-mcp binary
-	mcpPath, err := findMemoryMCP()
-	if err != nil {
-		return nil, err
-	}
-
-	// Build server arguments
-	var serverArgs []string
-	if dbPath != "" {
-		serverArgs = append(serverArgs, "--db", dbPath)
-	}
-	if chatModel != "" {
-		serverArgs = append(serverArgs, "--chat-model", chatModel)
-	}
-
-	// Create stdio MCP client
-	c, err := client.NewStdioMCPClient(
-		mcpPath,
-		os.Environ(), // inherit environment for the server process
-		serverArgs...,
+// When serverURL is non-empty, it connects via Streamable HTTP; otherwise via stdio.
+func newMemoryClient(dbPath, chatModel, serverURL string) (*memoryClient, error) {
+	var (
+		c     *client.Client
+		ctx   context.Context
+		cfunc context.CancelFunc
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP client: %w", err)
+
+	if serverURL != "" {
+		// ---- HTTP client mode ----
+		var err error
+		c, err = client.NewStreamableHttpClient(serverURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create HTTP MCP client: %w", err)
+		}
+		ctx, cfunc = context.WithTimeout(context.Background(), 120*time.Second)
+		if err := c.Start(ctx); err != nil {
+			cfunc()
+			c.Close()
+			return nil, fmt.Errorf("failed to start HTTP MCP client: %w", err)
+		}
+	} else {
+		// ---- Stdio client mode ----
+		mcpPath, err := findMemoryMCP()
+		if err != nil {
+			return nil, err
+		}
+
+		var serverArgs []string
+		if dbPath != "" {
+			serverArgs = append(serverArgs, "--db", dbPath)
+		}
+		if chatModel != "" {
+			serverArgs = append(serverArgs, "--chat-model", chatModel)
+		}
+
+		c, err = client.NewStdioMCPClient(
+			mcpPath,
+			os.Environ(), // inherit environment for the server process
+			serverArgs...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create MCP client: %w", err)
+		}
+
+		ctx, cfunc = context.WithTimeout(context.Background(), 120*time.Second)
 	}
 
-	ctx, cfunc := context.WithTimeout(context.Background(), 120*time.Second)
-
-	// Initialize MCP session
+	// Initialize MCP session (common to both stdio and HTTP modes)
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{

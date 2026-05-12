@@ -11,7 +11,7 @@ import (
 )
 
 func newListCmd() *cobra.Command {
-	var dbPath, chatModel, prefix string
+	var dbPath, chatModel, serverURL, prefix string
 	var output string
 
 	cmd := &cobra.Command{
@@ -36,7 +36,7 @@ Examples:
 				prefix = args[0]
 			}
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -56,6 +56,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "Output format: json, table, summary")
 
 	return cmd

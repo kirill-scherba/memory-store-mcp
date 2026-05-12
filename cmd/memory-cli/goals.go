@@ -12,7 +12,7 @@ import (
 )
 
 func newGoalsCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 	var all bool
 	var output string
 
@@ -47,7 +47,7 @@ Examples:
 				status = "active"
 			}
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -68,6 +68,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Show all goals (active, completed, archived)")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "Output format: json, table, summary")
 
@@ -85,7 +86,7 @@ Examples:
 // ---------------------------------------------------------------------------
 
 func newGoalsListCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 	var all bool
 	var output string
 
@@ -115,7 +116,7 @@ Examples:
 				status = "active"
 			}
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -136,6 +137,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Show all goals (active, completed, archived)")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "Output format: json, table, summary")
 
@@ -147,7 +149,7 @@ Examples:
 // ---------------------------------------------------------------------------
 
 func newGoalsCreateCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 	var title, description, deadline, labels string
 	var priority int
 	var output string
@@ -166,7 +168,7 @@ Examples:
 				return fmt.Errorf("title is required")
 			}
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -207,6 +209,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 	cmd.Flags().StringVar(&title, "title", "", "Goal title (required)")
 	cmd.Flags().StringVar(&description, "description", "", "Goal description")
 	cmd.Flags().IntVar(&priority, "priority", 5, "Priority (0-10)")
@@ -222,7 +225,7 @@ Examples:
 // ---------------------------------------------------------------------------
 
 func newGoalsShowCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 	var output string
 
 	cmd := &cobra.Command{
@@ -237,7 +240,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -281,6 +284,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "Output format: json, table, summary")
 
 	return cmd
@@ -291,7 +295,7 @@ Examples:
 // ---------------------------------------------------------------------------
 
 func newGoalsUpdateCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 	var title, description, status, deadline, labels string
 	var priority, progress int
 	var output string
@@ -309,7 +313,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -359,6 +363,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 	cmd.Flags().StringVar(&title, "title", "", "New title")
 	cmd.Flags().StringVar(&description, "description", "", "New description")
 	cmd.Flags().StringVar(&status, "status", "", "New status: active, completed, archived")
@@ -376,7 +381,7 @@ Examples:
 // ---------------------------------------------------------------------------
 
 func newGoalsDeleteCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
@@ -389,7 +394,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -409,6 +414,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 
 	return cmd
 }

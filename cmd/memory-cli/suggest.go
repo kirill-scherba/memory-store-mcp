@@ -11,7 +11,7 @@ import (
 )
 
 func newSuggestCmd() *cobra.Command {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 	var limit int
 	var output string
 
@@ -35,7 +35,7 @@ Examples:
 				ctx = args[0]
 			}
 
-			rc, err := newMemoryClient(dbPath, chatModel)
+			rc, err := newMemoryClient(dbPath, chatModel, serverURL)
 			if err != nil {
 				return err
 			}
@@ -56,6 +56,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 	cmd.Flags().IntVar(&limit, "limit", 5, "Maximum number of suggestions (max: 10)")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "Output format: json, table, summary")
 

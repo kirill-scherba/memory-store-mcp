@@ -12,20 +12,21 @@ import (
 )
 
 func main() {
-	var dbPath, chatModel string
+	var dbPath, chatModel, serverURL string
 
 	rootCmd := &cobra.Command{
 		Use:   "memory-cli",
 		Short: "CLI client for memory-store-mcp server",
 		Long: `A command-line interface for interacting with the memory-store-mcp server.
 
-memory-cli connects to the memory-store-mcp MCP server via stdio and allows
-you to save, retrieve, search, and manage memories, goals, and context.
+memory-cli connects to the memory-store-mcp MCP server via stdio (local binary)
+or Streamable HTTP (remote server via --server-url) and allows you to save,
+retrieve, search, and manage memories, goals, and context.
 
 Examples:
   memory-cli save memory/test/hello '{"content":"Hello"}' --text "hello world"
   memory-cli get memory/test/hello
-  memory-cli search "important facts"
+  memory-cli search "important facts" --server-url http://localhost:8080/mcp
   memory-cli goals
   memory-cli suggest`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -34,9 +35,10 @@ Examples:
 		},
 	}
 
-	// Global flags (passed through to subcommands via their own --db, --chat-model flags)
+	// Global flags (passed through to subcommands via their own --db, --chat-model, --server-url flags)
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	rootCmd.PersistentFlags().StringVar(&chatModel, "chat-model", "", "Chat model")
+	rootCmd.PersistentFlags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
 
 	// Register all subcommands
 	rootCmd.AddCommand(newSaveCmd())
