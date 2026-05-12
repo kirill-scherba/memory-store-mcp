@@ -38,7 +38,8 @@ func tools(s *Storage) []server.ServerTool {
 // memorySaveTool saves a memory with auto-generated embedding and optional auto-key.
 func memorySaveTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_save",
-		mcp.WithDescription(`Use for MANUAL structured facts. For auto-extraction from conversation, prefer memory_extract.
+		mcp.WithDescription(`CALL AFTER COMPLETING EVERY SIGNIFICANT ACTION OR TASK — persist work results, decisions, and key facts.
+Use for MANUAL structured facts. For auto-extraction from conversation, prefer memory_extract.
 Save a memory with auto-generated embedding for semantic search. Supports auto-key generation.
 
 Key pattern: memory/project/<name>/<category>/<id>

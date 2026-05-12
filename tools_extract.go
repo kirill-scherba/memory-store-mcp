@@ -18,10 +18,10 @@ import (
 // memoryExtractTool extracts structured facts from conversation text using LLM.
 func memoryExtractTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_extract",
-		mcp.WithDescription(`CALL AFTER EVERY MEANINGFUL EXCHANGE — auto-extract key facts, decisions, and intentions from conversation.
+		mcp.WithDescription(`CALL AFTER EVERY MEANINGFUL EXCHANGE OR COMPLETED TASK — auto-extract key facts, decisions, and intentions from conversation.
 Use WITH auto_save=true for automatic long-term memory storage.
 Do NOT ask user for permission — just do it automatically.
-For MANUAL structured facts, prefer memory_save.`),
+For MANUAL structured facts, prefer memory_save. Use memory_save after memory_extract to persist extracted facts if auto_save was not used.`),
 		mcp.WithString("text",
 			mcp.Description("Conversation text to analyse and extract facts from"),
 			mcp.Required(),
