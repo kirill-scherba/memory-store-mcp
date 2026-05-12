@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -74,7 +75,7 @@ func main() {
 	//   - plain text: "sk-or-..."
 	//   - file: prefix: "file:/path/to/keyfile"
 	key := *llmAPIKey
-	if after, ok :=strings.CutPrefix(key, "file:"); ok  {
+	if after, ok := strings.CutPrefix(key, "file:"); ok {
 		keyPath := after
 		keyData, err := os.ReadFile(keyPath)
 		if err != nil {
@@ -353,20 +354,20 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 		}
 
 		telegramFuncs := telegram.BotFuncs{
-			SaveNote:    store.SaveFromTelegram,
-			CreateGoal:  store.CreateGoalFromTelegram,
-			UpdateGoal:  store.UpdateGoalFromTelegram,
-			DeleteGoal:  store.DeleteGoalFromTelegram,
+			SaveNote:     store.SaveFromTelegram,
+			CreateGoal:   store.CreateGoalFromTelegram,
+			UpdateGoal:   store.UpdateGoalFromTelegram,
+			DeleteGoal:   store.DeleteGoalFromTelegram,
 			DeleteMemory: store.DeleteMemoryFromTelegram,
 			GetMemory:    store.GetMemoryFromTelegram,
 			Search:       store.SearchFromTelegram,
-			ListGoals:   store.ListGoalsFromTelegram,
-			GetGoal:     store.GetGoalFromTelegram,
-			GetTimeline: store.GetTimelineFromTelegram,
-			Suggest:     store.SuggestFromTelegram,
-			GetContext:  store.GetContextFromTelegram,
-			LLMProcess:  store.LLMQuestionProcess,
-			LLMRequest:  llmRequestFn,
+			ListGoals:    store.ListGoalsFromTelegram,
+			GetGoal:      store.GetGoalFromTelegram,
+			GetTimeline:  store.GetTimelineFromTelegram,
+			Suggest:      store.SuggestFromTelegram,
+			GetContext:   store.GetContextFromTelegram,
+			LLMProcess:   store.LLMQuestionProcess,
+			LLMRequest:   llmRequestFn,
 		}
 
 		bot, err := telegram.NewBot(token, telegramFuncs, allowedUsers)
@@ -390,7 +391,11 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 		httpServer := server.NewStreamableHTTPServer(s)
 		go func() {
 			if err := httpServer.Start(*httpAddr); err != nil {
-				log.Fatalf("HTTP server error: %v", err)
+				if err == http.ErrServerClosed {
+					log.Printf("HTTP server closed")
+					return
+				}
+				log.Fatalf("⚠ HTTP server error: %v", err)
 			}
 		}()
 
