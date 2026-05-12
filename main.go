@@ -41,17 +41,18 @@ func main() {
 		"LLM API base URL (default: http://localhost:11434)")
 	llmAPIKey := flag.String("llm-api-key", "",
 		"LLM API key for OpenAI-compatible APIs (e.g. OpenRouter, OpenAI)")
-	httpAddr := flag.String("http", "",
-		"HTTP listen address (enables HTTP/SSE transport, e.g. :8080)")
 	telegramToken := flag.String("telegram", "",
 		"Telegram bot token (enables Telegram bot mode)")
+	httpAddr := flag.String("http", "",
+		"HTTP listen address (enables StreamableHTTP transport, e.g. ':8080')")
 	showHelp := flag.Bool("h", false, "Show help")
 	flag.Parse()
 
 	if *showHelp {
 		fmt.Fprintf(os.Stderr, "Usage: memory-store-mcp [options]\n\n")
 		fmt.Fprintf(os.Stderr, "MCP server for persistent AI memory with semantic search.\n")
-		fmt.Fprintf(os.Stderr, "Communicates via JSON-RPC 2.0 over stdin/stdout.\n\n")
+		fmt.Fprintf(os.Stderr, "By default, communicates via JSON-RPC 2.0 over stdin/stdout.\n")
+		fmt.Fprintf(os.Stderr, "Use --http to enable StreamableHTTP transport.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment variables:\n")
@@ -377,16 +378,17 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 	}
 
 	// ── Server Transport ─────────────────────────────────────────────────
-	// Start the server over stdin/stdout (JSON-RPC 2.0) or HTTP/SSE
+	// Start the server over stdin/stdout (JSON-RPC 2.0) or StreamableHTTP
 	if *httpAddr != "" {
-		log.Printf("🌐 Starting HTTP SSE server on %s", *httpAddr)
-		log.Printf("   SSE endpoint:     %s/sse", *httpAddr)
-		log.Printf("   Message endpoint: %s/message", *httpAddr)
-		sseServer := server.NewSSEServer(s)
-		if err := sseServer.Start(*httpAddr); err != nil {
+		log.Printf("🌐 Starting MCP StreamableHTTP server on %s", *httpAddr)
+		log.Printf("   HTTP endpoint:   %s/mcp", *httpAddr)
+		httpServer := server.NewStreamableHTTPServer(s)
+		if err := httpServer.Start(*httpAddr); err != nil {
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	} else {
+		log.Printf("   Transport:       stdin/stdout (JSON-RPC 2.0)")
+		// Start the server over stdin/stdout (JSON-RPC 2.0)
 		if err := server.ServeStdio(s); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
