@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +50,55 @@ type Goal struct {
 	Deadline    string   `json:"deadline,omitempty"`
 	CreatedAt   int64    `json:"created_at"`
 	UpdatedAt   int64    `json:"updated_at"`
+}
+
+// goalRow is the internal database representation for sqlh.
+type goalRow struct {
+	ID          string    `db:"id" db_key:"primary key"`
+	Title       string    `db:"title" db_key:"not null"`
+	Description string    `db:"description"`
+	Status      string    `db:"status"`
+	Labels      string    `db:"labels"` // JSON array string
+	Priority    int       `db:"priority"`
+	Progress    int       `db:"progress"`
+	Deadline    string    `db:"deadline"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
+}
+
+func (goalRow) TableName() string { return "goals" }
+
+// toGoal converts a goalRow to the public Goal type.
+func (r *goalRow) toGoal() *Goal {
+	return &Goal{
+		ID:          r.ID,
+		Title:       r.Title,
+		Description: r.Description,
+		Labels:      parseStoredLabels(r.Labels),
+		Status:      r.Status,
+		Priority:    r.Priority,
+		Progress:    r.Progress,
+		Deadline:    r.Deadline,
+		CreatedAt:   r.CreatedAt.Unix(),
+		UpdatedAt:   r.UpdatedAt.Unix(),
+	}
+}
+
+// fromGoal converts a public Goal to goalRow.
+func goalFrom(g *Goal) *goalRow {
+	labels, _ := json.Marshal(normalizeLabels(g.Labels))
+	return &goalRow{
+		ID:          g.ID,
+		Title:       g.Title,
+		Description: g.Description,
+		Status:      g.Status,
+		Labels:      string(labels),
+		Priority:    g.Priority,
+		Progress:    g.Progress,
+		Deadline:    g.Deadline,
+		CreatedAt:   time.Unix(g.CreatedAt, 0),
+		UpdatedAt:   time.Unix(g.UpdatedAt, 0),
+	}
 }
 
 // ContextResult is the aggregated context returned by GetContext.
@@ -129,30 +177,11 @@ func NewStorage(dbPath string) (*Storage, error) {
 		return nil, fmt.Errorf("failed to open goals db: %w", err)
 	}
 
-	// Create goals table
-	if _, err := goalsDB.Exec(`
-		CREATE TABLE IF NOT EXISTS goals (
-			id          TEXT PRIMARY KEY NOT NULL,
-			title       TEXT NOT NULL,
-			description TEXT NOT NULL DEFAULT '',
-			status      TEXT NOT NULL DEFAULT 'active',
-			labels      TEXT NOT NULL DEFAULT '[]',
-			priority    INTEGER NOT NULL DEFAULT 5,
-			progress    INTEGER NOT NULL DEFAULT 0,
-			deadline    TEXT NOT NULL DEFAULT '',
-			created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-			updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-		)
-	`); err != nil {
+	// Create goals table via sqlh
+	if err := sqlh.Create[goalRow](goalsDB); err != nil {
 		kv.Close()
 		goalsDB.Close()
 		return nil, fmt.Errorf("create goals table: %w", err)
-	}
-
-	if err := ensureGoalSchema(goalsDB); err != nil {
-		kv.Close()
-		goalsDB.Close()
-		return nil, err
 	}
 
 	// Create timeline_events table for usage tracking
@@ -337,7 +366,7 @@ func (s *Storage) CreateGoal(title, description, deadline string, priority int, 
 		time.Now().UTC().Format("2006-01-02"),
 		time.Now().UnixNano(),
 	)
-	now := time.Now().UTC().Unix()
+	now := time.Now().UTC()
 	labels = normalizeLabels(labels)
 	labelsJSON, err := json.Marshal(labels)
 	if err != nil {
@@ -348,11 +377,19 @@ func (s *Storage) CreateGoal(title, description, deadline string, priority int, 
 		progress = done * 100 / total
 	}
 
-	_, err = s.goals.Exec(`
-		INSERT INTO goals (id, title, description, status, labels, priority, progress, deadline, created_at, updated_at)
-		VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
-	`, id, title, description, string(labelsJSON), priority, progress, deadline, now, now)
-	if err != nil {
+	row := goalRow{
+		ID:          id,
+		Title:       title,
+		Description: description,
+		Status:      "active",
+		Labels:      string(labelsJSON),
+		Priority:    priority,
+		Progress:    progress,
+		Deadline:    deadline,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := sqlh.Insert(s.goals, row); err != nil {
 		return nil, fmt.Errorf("create goal: %w", err)
 	}
 
@@ -368,72 +405,35 @@ func (s *Storage) CreateGoal(title, description, deadline string, priority int, 
 
 // GetGoal retrieves a single goal by ID.
 func (s *Storage) GetGoal(id string) (*Goal, error) {
-	var g Goal
-	var labelsJSON, deadline string
-
-	err := s.goals.QueryRow(`
-		SELECT id, title, description, status, labels, priority, progress, deadline, created_at, updated_at
-		FROM goals WHERE id = ?
-	`, id).Scan(&g.ID, &g.Title, &g.Description, &g.Status, &labelsJSON, &g.Priority, &g.Progress, &deadline, &g.CreatedAt, &g.UpdatedAt)
+	row, err := sqlh.Get[goalRow](s.goals, sqlh.Where{Field: "id=", Value: id})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("goal %s not found", id)
-		}
 		return nil, fmt.Errorf("get goal %s: %w", id, err)
 	}
-
-	g.Labels = parseStoredLabels(labelsJSON)
-	g.Deadline = deadline
-
-	return &g, nil
+	return row.toGoal(), nil
 }
 
 // ListGoals returns goals filtered by status and labels. If status is empty,
 // returns all statuses. Labels are matched as JSON strings in the labels column.
 func (s *Storage) ListGoals(status string, labelsFilter []string) ([]Goal, error) {
-	query := `
-		SELECT id, title, description, status, labels, priority, progress, deadline, created_at, updated_at
-		FROM goals
-	`
-	var conditions []string
-	var args []interface{}
+	var wheres []interface{}
 
 	if status != "" {
-		conditions = append(conditions, "status = ?")
-		args = append(args, status)
+		wheres = append(wheres, sqlh.Where{Field: "status=", Value: status})
 	}
 	for _, label := range normalizeLabels(labelsFilter) {
-		conditions = append(conditions, "labels LIKE ?")
-		args = append(args, `%`+strconv.Quote(label)+`%`)
+		wheres = append(wheres, sqlh.Where{Field: "labels LIKE", Value: `%"` + label + `%"`})
 	}
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += " ORDER BY priority DESC, created_at DESC"
 
-	rows, err := s.goals.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list goals: %w", err)
-	}
-	defer rows.Close()
-
+	var listErr error
 	var goals []Goal
-	for rows.Next() {
-		var g Goal
-		var createdAt, updatedAt, labelsJSON, deadline string
-		if err := rows.Scan(&g.ID, &g.Title, &g.Description, &g.Status, &labelsJSON, &g.Priority, &g.Progress, &deadline, &createdAt, &updatedAt); err != nil {
-			return nil, fmt.Errorf("scan goal: %w", err)
-		}
-		g.Labels = parseStoredLabels(labelsJSON)
-		g.Deadline = deadline
-		// Parse as int64 if numeric, otherwise parse as time string -> unix
-		if ct, err := parseIntOrTime(createdAt); err == nil {
-			g.CreatedAt = ct
-		}
-		if ut, err := parseIntOrTime(updatedAt); err == nil {
-			g.UpdatedAt = ut
-		}
-		goals = append(goals, g)
+	for _, row := range sqlh.ListRange[goalRow](
+		s.goals, 0, "", "priority DESC, created_at DESC", 1000,
+		append([]any{func(err error) { listErr = err }}, wheres...)...,
+	) {
+		goals = append(goals, *row.toGoal())
+	}
+	if listErr != nil {
+		return nil, fmt.Errorf("list goals: %w", listErr)
 	}
 
 	return goals, nil
@@ -441,59 +441,47 @@ func (s *Storage) ListGoals(status string, labelsFilter []string) ([]Goal, error
 
 // UpdateGoal updates an existing goal's fields.
 func (s *Storage) UpdateGoal(id, title, description, status, deadline string, priority, progress int, labels []string) (*Goal, error) {
-	if _, err := s.GetGoal(id); err != nil {
+	existing, err := s.GetGoal(id)
+	if err != nil {
 		return nil, err
 	}
 
-	// Build dynamic UPDATE
-	now := time.Now().UTC().Unix()
-	sets := []string{"updated_at = ?"}
-	args := []interface{}{now}
+	row := goalFrom(existing)
+	now := time.Now().UTC()
 
 	if title != "" {
-		sets = append(sets, "title = ?")
-		args = append(args, title)
+		row.Title = title
 	}
 	if description != "" {
-		sets = append(sets, "description = ?")
-		args = append(args, description)
+		row.Description = description
 	}
 	if status != "" {
-		sets = append(sets, "status = ?")
-		args = append(args, status)
+		row.Status = status
 	}
 	if deadline != "" {
-		sets = append(sets, "deadline = ?")
-		args = append(args, deadline)
+		row.Deadline = deadline
 	}
 	if labels != nil {
-		labelsJSON, err := json.Marshal(normalizeLabels(labels))
-		if err != nil {
-			return nil, fmt.Errorf("marshal labels: %w", err)
-		}
-		sets = append(sets, "labels = ?")
-		args = append(args, string(labelsJSON))
+		labelsB, _ := json.Marshal(normalizeLabels(labels))
+		row.Labels = string(labelsB)
 	}
 	if priority >= 0 {
-		sets = append(sets, "priority = ?")
-		args = append(args, priority)
+		row.Priority = priority
 	}
 	if progress >= 0 {
-		sets = append(sets, "progress = ?")
-		args = append(args, progress)
+		row.Progress = progress
 	} else if description != "" {
 		done, total := countSubtasksFromDescription(description)
 		if total > 0 {
-			sets = append(sets, "progress = ?")
-			args = append(args, done*100/total)
+			row.Progress = done * 100 / total
 		}
 	}
+	row.UpdatedAt = now
 
-	args = append(args, id)
-
-	query := fmt.Sprintf("UPDATE goals SET %s WHERE id = ?", strings.Join(sets, ", "))
-	_, err := s.goals.Exec(query, args...)
-	if err != nil {
+	if err := sqlh.Update(s.goals, sqlh.UpdateAttr[goalRow]{
+		Row:    *row,
+		Wheres: []sqlh.Where{{Field: "id=", Value: id}},
+	}); err != nil {
 		return nil, fmt.Errorf("update goal %s: %w", id, err)
 	}
 
@@ -512,12 +500,8 @@ func (s *Storage) DeleteGoal(id string) error {
 	if id == "" {
 		return fmt.Errorf("goal id is required")
 	}
-	result, err := s.goals.Exec(`DELETE FROM goals WHERE id = ?`, id)
-	if err != nil {
+	if err := sqlh.Delete[goalRow](s.goals, sqlh.Where{Field: "id=", Value: id}); err != nil {
 		return fmt.Errorf("delete goal %s: %w", id, err)
-	}
-	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
-		return fmt.Errorf("goal %s not found", id)
 	}
 	return s.deleteGoalMemory(id)
 }
@@ -755,51 +739,6 @@ Return a JSON array of suggestions. Each suggestion has: type (reminder/followup
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-// parseIntOrTime attempts to parse a string as int64 (Unix timestamp) first,
-// then as a time string in "2006-01-02 15:04:05" format.
-func parseIntOrTime(s string) (int64, error) {
-	// Try as int64 (Unix timestamp stored as TEXT in SQLite)
-	if val, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return val, nil
-	}
-	// Try as time string
-	t, err := time.Parse("2006-01-02 15:04:05", s)
-	if err != nil {
-		return 0, err
-	}
-	return t.Unix(), nil
-}
-
-func ensureGoalSchema(db *sql.DB) error {
-	rows, err := db.Query(`PRAGMA table_info(goals)`)
-	if err != nil {
-		return fmt.Errorf("read goals schema: %w", err)
-	}
-	defer rows.Close()
-
-	columns := map[string]bool{}
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var defaultValue interface{}
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			return fmt.Errorf("scan goals schema: %w", err)
-		}
-		columns[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate goals schema: %w", err)
-	}
-	if !columns["labels"] {
-		if _, err := db.Exec(`ALTER TABLE goals ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'`); err != nil {
-			return fmt.Errorf("add goals.labels column: %w", err)
-		}
-	}
-	return nil
-}
 
 func normalizeLabels(labels []string) []string {
 	seen := make(map[string]bool, len(labels))
