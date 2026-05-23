@@ -15,26 +15,51 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// logWrap wraps an MCP handler to automatically log usage events.
+func logWrap(name string, s *Storage, fn server.ToolHandlerFunc) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args := request.GetArguments()
+
+		// Extract key/summary from request arguments
+		key := ""
+		summary := ""
+		for _, field := range []string{"key", "project", "query", "id"} {
+			if v, ok := args[field].(string); ok && v != "" {
+				key = v
+				break
+			}
+		}
+		if v, ok := args["summary"].(string); ok && v != "" {
+			summary = v
+		} else if v, ok := args["text"].(string); ok && v != "" {
+			summary = truncate(v, 80)
+		}
+
+		s.LogEvent(name, key, summary, "")
+		return fn(ctx, request)
+	}
+}
+
 // tools returns all MCP tools for memory-store-mcp.
 func tools(s *Storage) []server.ServerTool {
 	return []server.ServerTool{
-		memorySaveTool(s),
-		memoryGetTool(s),
-		memoryDeleteTool(s),
-		memorySearchTool(s),
-		memoryListTool(s),
-		memoryGetContextTool(s),
-		memoryExtractTool(s),
-		memoryGoalCreateTool(s),
-		memoryGoalListTool(s),
-		memoryGoalUpdateTool(s),
-		memoryGoalDeleteTool(s),
-		memoryTimelineTool(s),
-		memorySuggestTool(s),
-		sessionSaveTool(s),
-		sessionGetTool(s),
-		sessionListTool(s),
-		sessionCompactTool(s),
+		{Tool: memorySaveTool(s).Tool, Handler: logWrap("memory_save", s, memorySaveTool(s).Handler)},
+		{Tool: memoryGetTool(s).Tool, Handler: logWrap("memory_get", s, memoryGetTool(s).Handler)},
+		{Tool: memoryDeleteTool(s).Tool, Handler: logWrap("memory_delete", s, memoryDeleteTool(s).Handler)},
+		{Tool: memorySearchTool(s).Tool, Handler: logWrap("memory_search", s, memorySearchTool(s).Handler)},
+		{Tool: memoryListTool(s).Tool, Handler: logWrap("memory_list", s, memoryListTool(s).Handler)},
+		{Tool: memoryGetContextTool(s).Tool, Handler: logWrap("memory_get_context", s, memoryGetContextTool(s).Handler)},
+		{Tool: memoryExtractTool(s).Tool, Handler: logWrap("memory_extract", s, memoryExtractTool(s).Handler)},
+		{Tool: memoryGoalCreateTool(s).Tool, Handler: logWrap("memory_goal_create", s, memoryGoalCreateTool(s).Handler)},
+		{Tool: memoryGoalListTool(s).Tool, Handler: logWrap("memory_goal_list", s, memoryGoalListTool(s).Handler)},
+		{Tool: memoryGoalUpdateTool(s).Tool, Handler: logWrap("memory_goal_update", s, memoryGoalUpdateTool(s).Handler)},
+		{Tool: memoryGoalDeleteTool(s).Tool, Handler: logWrap("memory_goal_delete", s, memoryGoalDeleteTool(s).Handler)},
+		{Tool: memoryTimelineTool(s).Tool, Handler: logWrap("memory_timeline", s, memoryTimelineTool(s).Handler)},
+		{Tool: memorySuggestTool(s).Tool, Handler: logWrap("memory_suggest", s, memorySuggestTool(s).Handler)},
+		{Tool: sessionSaveTool(s).Tool, Handler: logWrap("session_save", s, sessionSaveTool(s).Handler)},
+		{Tool: sessionGetTool(s).Tool, Handler: logWrap("session_get", s, sessionGetTool(s).Handler)},
+		{Tool: sessionListTool(s).Tool, Handler: logWrap("session_list", s, sessionListTool(s).Handler)},
+		{Tool: sessionCompactTool(s).Tool, Handler: logWrap("session_compact", s, sessionCompactTool(s).Handler)},
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 
 	"github.com/kirill-scherba/keyvalembd"
+	"github.com/kirill-scherba/sqlh"
 	_ "github.com/tursodatabase/go-libsql"
 )
 
@@ -73,6 +74,20 @@ type TimelineEntry struct {
 	Key       string      `json:"key"`
 	Value     MemoryValue `json:"value"`
 	CreatedAt string      `json:"created_at"`
+}
+
+// TimelineEvent represents a single usage event for the timeline_events table.
+type TimelineEvent struct {
+	ID        int64  `db:"id" db_key:"primary key autoincrement"`
+	EventType string `db:"event_type" db_key:"not null"`
+	Key       string `db:"key"`
+	Summary   string `db:"summary"`
+	Details   string `db:"details"`
+	CreatedAt string `db:"created_at" db_type:"TEXT" db_key:"DEFAULT (datetime('now'))"`
+}
+
+func (TimelineEvent) TableName() string {
+	return "timeline_events"
 }
 
 // Suggestion is a proactive suggestion returned by Suggest.
@@ -138,6 +153,13 @@ func NewStorage(dbPath string) (*Storage, error) {
 		kv.Close()
 		goalsDB.Close()
 		return nil, err
+	}
+
+	// Create timeline_events table for usage tracking
+	if err := sqlh.Create[TimelineEvent](goalsDB); err != nil {
+		kv.Close()
+		goalsDB.Close()
+		return nil, fmt.Errorf("create timeline_events table: %w", err)
 	}
 
 	log.Printf("✅ storage ready at: %s", dbPath)
@@ -543,69 +565,55 @@ func (s *Storage) deleteGoalMemory(id string) error {
 // Timeline
 // ---------------------------------------------------------------------------
 
-// GetTimeline returns memory entries created within the given date range.
+// LogEvent records a usage event in the timeline_events table.
+func (s *Storage) LogEvent(eventType string, key, summary, details string) {
+	event := TimelineEvent{
+		EventType: eventType,
+		Key:       key,
+		Summary:   summary,
+		Details:   details,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := sqlh.Insert(s.goals, event); err != nil {
+		log.Printf("⚠ LogEvent failed: %v", err)
+	}
+}
+
+// GetTimeline returns events from timeline_events within the given date range.
 // If from or to is empty, no bound is applied.
 func (s *Storage) GetTimeline(from, to string, limit int) ([]TimelineEntry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
-	// For timeline we use the List + Get approach with kv_data, but we need
-	// access to created_at. Since keyvalembd doesn't expose raw queries,
-	// we list all entries with prefix and filter.
-	// A more efficient approach would use DB access, but for now we work
-	// with the KV API.
-	query := "SELECT key FROM kv_data"
-	var args []interface{}
-	var conditions []string
-
+	var wheres []sqlh.Where
 	if from != "" {
-		conditions = append(conditions, "created_at >= ?")
-		args = append(args, from)
+		wheres = append(wheres, sqlh.Where{Field: "created_at>=", Value: from})
 	}
 	if to != "" {
-		conditions = append(conditions, "created_at <= ?")
-		args = append(args, to)
+		wheres = append(wheres, sqlh.Where{Field: "created_at<=", Value: to})
 	}
 
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += " ORDER BY created_at DESC LIMIT ?"
-	args = append(args, limit)
-
-	// We need DB access — use the goals connection (same DB)
-	rows, err := s.goals.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("timeline query: %w", err)
-	}
-	defer rows.Close()
-
-	var entries []TimelineEntry
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			continue
-		}
-		val, err := s.Get(key)
-		if err != nil {
-			continue
-		}
-
-		// Get created_at from keyvalembd info
-		info, err := s.kv.GetInfo(key)
-		if err != nil {
-			continue
-		}
-
-		entries = append(entries, TimelineEntry{
-			Key:       key,
-			Value:     *val,
-			CreatedAt: info.CreatedAt.Format(time.RFC3339),
+	var listErr error
+	events := make([]TimelineEntry, 0, limit)
+	for _, ev := range sqlh.ListRange[TimelineEvent](
+		s.goals, 0, "", "created_at DESC", limit,
+		func(err error) { listErr = err },
+	) {
+		events = append(events, TimelineEntry{
+			Key:       ev.Key,
+			Value:     MemoryValue{Content: ev.Summary, Summary: ev.EventType},
+			CreatedAt: ev.CreatedAt,
 		})
+		if len(events) >= limit {
+			break
+		}
+	}
+	if listErr != nil {
+		return nil, fmt.Errorf("timeline query: %w", listErr)
 	}
 
-	return entries, nil
+	return events, nil
 }
 
 // ---------------------------------------------------------------------------
