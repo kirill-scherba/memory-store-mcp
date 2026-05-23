@@ -834,6 +834,86 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "…"
 }
 
+// ---------------------------------------------------------------------------
+// Session state
+// ---------------------------------------------------------------------------
+
+// SessionSave saves session state for a project. Stores two entries:
+//   session/project/<project>/latest         — always overwritten (restore)
+//   session/project/<project>/<timestamp>    — timestamp snapshot (history)
+func (s *Storage) SessionSave(project string, data []byte) (string, error) {
+	project = sanitizeSessionProject(project)
+	latestKey := fmt.Sprintf("session/project/%s/latest", project)
+
+	if _, err := s.kv.Set(latestKey, data); err != nil {
+		return "", fmt.Errorf("session save latest: %w", err)
+	}
+
+	ts := time.Now().UTC().Format(time.RFC3339)
+	tsKey := fmt.Sprintf("session/project/%s/%s", project, ts)
+	if _, err := s.kv.Set(tsKey, data); err != nil {
+		return "", fmt.Errorf("session save timestamp: %w", err)
+	}
+
+	return latestKey, nil
+}
+
+// SessionGet retrieves the latest session state for a project.
+func (s *Storage) SessionGet(project string) ([]byte, error) {
+	project = sanitizeSessionProject(project)
+	key := fmt.Sprintf("session/project/%s/latest", project)
+	data, err := s.kv.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("session get %s: %w", project, err)
+	}
+	return data, nil
+}
+
+// SessionList returns session keys with the given prefix.
+func (s *Storage) SessionList(prefix string) ([]string, error) {
+	if prefix == "" {
+		prefix = "session/"
+	}
+	var keys []string
+	for key := range s.kv.List(prefix) {
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
+
+// SessionCompact deletes timestamped session entries older than maxAge.
+// Never deletes */latest keys.
+func (s *Storage) SessionCompact(maxAge time.Duration) (int, error) {
+	if maxAge <= 0 {
+		maxAge = 7 * 24 * time.Hour
+	}
+
+	cutoff := time.Now().UTC().Add(-maxAge)
+	var deleted int
+
+	for key := range s.kv.List("session/") {
+		if strings.HasSuffix(key, "/latest") {
+			continue
+		}
+		info, err := s.kv.GetInfo(key)
+		if err != nil {
+			continue
+		}
+		if info.CreatedAt.Before(cutoff) {
+			if err := s.kv.Del(key); err == nil {
+				deleted++
+			}
+		}
+	}
+
+	return deleted, nil
+}
+
+// sanitizeSessionProject replaces path separators to keep session keys flat.
+func sanitizeSessionProject(project string) string {
+	return strings.ReplaceAll(project, "/", "-")
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Telegram bridge methods for the Telegram bot.
 // ───────────────────────────────────────────────────────────────────────────
