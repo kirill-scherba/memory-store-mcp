@@ -78,12 +78,12 @@ type TimelineEntry struct {
 
 // TimelineEvent represents a single usage event for the timeline_events table.
 type TimelineEvent struct {
-	ID        int64  `db:"id" db_key:"primary key autoincrement"`
-	EventType string `db:"event_type" db_key:"not null"`
-	Key       string `db:"key"`
-	Summary   string `db:"summary"`
-	Details   string `db:"details"`
-	CreatedAt string `db:"created_at" db_type:"TEXT" db_key:"DEFAULT (datetime('now'))"`
+	ID        int64     `db:"id" db_key:"primary key autoincrement"`
+	EventType string    `db:"event_type" db_key:"not null"`
+	Key       string    `db:"key"`
+	Summary   string    `db:"summary"`
+	Details   string    `db:"details"`
+	CreatedAt time.Time `db:"created_at"`
 }
 
 func (TimelineEvent) TableName() string {
@@ -572,7 +572,7 @@ func (s *Storage) LogEvent(eventType string, key, summary, details string) {
 		Key:       key,
 		Summary:   summary,
 		Details:   details,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := sqlh.Insert(s.goals, event); err != nil {
 		log.Printf("⚠ LogEvent failed: %v", err)
@@ -603,7 +603,7 @@ func (s *Storage) GetTimeline(from, to string, limit int) ([]TimelineEntry, erro
 		events = append(events, TimelineEntry{
 			Key:       ev.Key,
 			Value:     MemoryValue{Content: ev.Summary, Summary: ev.EventType},
-			CreatedAt: ev.CreatedAt,
+			CreatedAt: ev.CreatedAt.Format(time.RFC3339),
 		})
 		if len(events) >= limit {
 			break
