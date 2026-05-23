@@ -579,10 +579,15 @@ func (s *Storage) GetTimeline(from, to string, limit int) ([]TimelineEntry, erro
 	}
 
 	var listErr error
+	listAttrs := []any{func(err error) { listErr = err }}
+	for _, where := range wheres {
+		listAttrs = append(listAttrs, where)
+	}
+
 	events := make([]TimelineEntry, 0, limit)
 	for _, ev := range sqlh.ListRange[TimelineEvent](
 		s.goals, 0, "", "created_at DESC", limit,
-		func(err error) { listErr = err },
+		listAttrs...,
 	) {
 		events = append(events, TimelineEntry{
 			Key:       ev.Key,
@@ -786,8 +791,9 @@ func truncate(s string, maxLen int) string {
 // ---------------------------------------------------------------------------
 
 // SessionSave saves session state for a project. Stores two entries:
-//   session/project/<project>/latest         — always overwritten (restore)
-//   session/project/<project>/<timestamp>    — timestamp snapshot (history)
+//
+//	session/project/<project>/latest         — always overwritten (restore)
+//	session/project/<project>/<timestamp>    — timestamp snapshot (history)
 func (s *Storage) SessionSave(project string, data []byte) (string, error) {
 	project = sanitizeSessionProject(project)
 	latestKey := fmt.Sprintf("session/project/%s/latest", project)
