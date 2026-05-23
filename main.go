@@ -161,10 +161,24 @@ Available tools: memory_save, memory_get, memory_delete, memory_search,
 memory_list, memory_get_context, memory_extract, memory_goal_create,
 memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memory_suggest
 
+### 5. Session State
+When resuming work on a project, call **session_get** to retrieve your last session state.
+Before disconnecting or ending a session, call **session_save** to store:
+- current task, todo state, pending decisions
+- context tokens used and model info
+- memory references for quick lookup
+Session data is stored without embedding (exact-key lookup only).
+
 ## MCP Resources (auto-pulled context)
 - memory://context/current  — aggregated context for current conversation
 - memory://goals/active     — list of active goals
-- memory://timeline/today   — today's events`
+- memory://timeline/today   — today's events
+
+## Session Tools
+- session_save              — save current session state for a project
+- session_get               — retrieve latest session state
+- session_list              — list session keys by prefix
+- session_compact           — cleanup old session snapshots`
 
 	// Create MCP server
 	s := server.NewMCPServer(
@@ -308,7 +322,17 @@ memory_goal_list, memory_goal_update, memory_goal_delete, memory_timeline, memor
 		}, nil
 	})
 
-	log.Printf("✅ Registered 13 tools and 5 resources")
+	log.Printf("Registered 17 tools and 5 resources")
+
+	// ── Session compact goroutine (best-effort, non-blocking) ──────────────
+	go func() {
+		deleted, err := store.SessionCompact(7 * 24 * time.Hour)
+		if err != nil {
+			log.Printf("Session compact: %v", err)
+		} else if deleted > 0 {
+			log.Printf("Session compact: cleaned %d old entries", deleted)
+		}
+	}()
 
 	// ── Telegram Bot (optional) ──────────────────────────────────────────
 	if *telegramToken != "" {

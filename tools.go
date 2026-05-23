@@ -9,27 +9,57 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// logWrap wraps an MCP handler to automatically log usage events.
+func logWrap(name string, s *Storage, fn server.ToolHandlerFunc) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args := request.GetArguments()
+
+		// Extract key/summary from request arguments
+		key := ""
+		summary := ""
+		for _, field := range []string{"key", "project", "query", "id"} {
+			if v, ok := args[field].(string); ok && v != "" {
+				key = v
+				break
+			}
+		}
+		if v, ok := args["summary"].(string); ok && v != "" {
+			summary = v
+		} else if v, ok := args["text"].(string); ok && v != "" {
+			summary = truncate(v, 80)
+		}
+
+		s.LogEvent(name, key, summary, "")
+		return fn(ctx, request)
+	}
+}
+
 // tools returns all MCP tools for memory-store-mcp.
 func tools(s *Storage) []server.ServerTool {
 	return []server.ServerTool{
-		memorySaveTool(s),
-		memoryGetTool(s),
-		memoryDeleteTool(s),
-		memorySearchTool(s),
-		memoryListTool(s),
-		memoryGetContextTool(s),
-		memoryExtractTool(s),
-		memoryGoalCreateTool(s),
-		memoryGoalListTool(s),
-		memoryGoalUpdateTool(s),
-		memoryGoalDeleteTool(s),
-		memoryTimelineTool(s),
-		memorySuggestTool(s),
+		{Tool: memorySaveTool(s).Tool, Handler: logWrap("memory_save", s, memorySaveTool(s).Handler)},
+		{Tool: memoryGetTool(s).Tool, Handler: logWrap("memory_get", s, memoryGetTool(s).Handler)},
+		{Tool: memoryDeleteTool(s).Tool, Handler: logWrap("memory_delete", s, memoryDeleteTool(s).Handler)},
+		{Tool: memorySearchTool(s).Tool, Handler: logWrap("memory_search", s, memorySearchTool(s).Handler)},
+		{Tool: memoryListTool(s).Tool, Handler: logWrap("memory_list", s, memoryListTool(s).Handler)},
+		{Tool: memoryGetContextTool(s).Tool, Handler: logWrap("memory_get_context", s, memoryGetContextTool(s).Handler)},
+		{Tool: memoryExtractTool(s).Tool, Handler: logWrap("memory_extract", s, memoryExtractTool(s).Handler)},
+		{Tool: memoryGoalCreateTool(s).Tool, Handler: logWrap("memory_goal_create", s, memoryGoalCreateTool(s).Handler)},
+		{Tool: memoryGoalListTool(s).Tool, Handler: logWrap("memory_goal_list", s, memoryGoalListTool(s).Handler)},
+		{Tool: memoryGoalUpdateTool(s).Tool, Handler: logWrap("memory_goal_update", s, memoryGoalUpdateTool(s).Handler)},
+		{Tool: memoryGoalDeleteTool(s).Tool, Handler: logWrap("memory_goal_delete", s, memoryGoalDeleteTool(s).Handler)},
+		{Tool: memoryTimelineTool(s).Tool, Handler: logWrap("memory_timeline", s, memoryTimelineTool(s).Handler)},
+		{Tool: memorySuggestTool(s).Tool, Handler: logWrap("memory_suggest", s, memorySuggestTool(s).Handler)},
+		{Tool: sessionSaveTool(s).Tool, Handler: logWrap("session_save", s, sessionSaveTool(s).Handler)},
+		{Tool: sessionGetTool(s).Tool, Handler: logWrap("session_get", s, sessionGetTool(s).Handler)},
+		{Tool: sessionListTool(s).Tool, Handler: logWrap("session_list", s, sessionListTool(s).Handler)},
+		{Tool: sessionCompactTool(s).Tool, Handler: logWrap("session_compact", s, sessionCompactTool(s).Handler)},
 	}
 }
 
@@ -240,6 +270,147 @@ func memoryListTool(s *Storage) server.ServerTool {
 			}
 			result := fmt.Sprintf("Found %d memories:\n%s", len(keys), strings.Join(keys, "\n"))
 			return mcp.NewToolResultText(result), nil
+		},
+	}
+}
+
+// ─── session_save ──────────────────────────────────────────────────────────────
+
+// sessionSaveTool saves session state for a project.
+func sessionSaveTool(s *Storage) server.ServerTool {
+	opt := mcp.NewTool("session_save",
+		mcp.WithDescription(`Save session state for a project. Stores a latest copy (for restore) and a timestamp snapshot (for history).
+Use before disconnecting to preserve current working state: open files, todo progress, pending decisions, context usage.
+Session data is stored WITHOUT embedding (exact-key lookup only).`),
+		mcp.WithString("project",
+			mcp.Description("Project name, e.g. memory-store-mcp"),
+			mcp.Required(),
+		),
+		mcp.WithString("data",
+			mcp.Description("JSON blob with session state (open files, current task, todo state, pending decisions, model info, memory_refs)"),
+			mcp.Required(),
+		),
+	)
+
+	return server.ServerTool{
+		Tool: opt,
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			project, _ := args["project"].(string)
+			dataStr, _ := args["data"].(string)
+
+			if project == "" || dataStr == "" {
+				return mcp.NewToolResultText("Error: project and data are required"), nil
+			}
+
+			key, err := s.SessionSave(project, []byte(dataStr))
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error saving session: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(fmt.Sprintf("Session saved\nKey: %s", key)), nil
+		},
+	}
+}
+
+// ─── session_get ─────────────────────────────────────────────────────────────────
+
+// sessionGetTool retrieves the latest session state for a project.
+func sessionGetTool(s *Storage) server.ServerTool {
+	opt := mcp.NewTool("session_get",
+		mcp.WithDescription(`Retrieve the latest saved session state for a project. Call at the start of a new session to pick up where you left off.`),
+		mcp.WithString("project",
+			mcp.Description("Project name, e.g. memory-store-mcp"),
+			mcp.Required(),
+		),
+	)
+
+	return server.ServerTool{
+		Tool: opt,
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			project, _ := args["project"].(string)
+			if project == "" {
+				return mcp.NewToolResultText("Error: project is required"), nil
+			}
+
+			data, err := s.SessionGet(project)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	}
+}
+
+// ─── session_list ────────────────────────────────────────────────────────────────
+
+// sessionListTool lists session keys by prefix.
+func sessionListTool(s *Storage) server.ServerTool {
+	opt := mcp.NewTool("session_list",
+		mcp.WithDescription(`List session keys by prefix. S3-style folder semantics:
+- Keys ending with '/' are folders
+- Sub-folders collapsed into single entries
+- Use "" to list all top-level session keys`),
+		mcp.WithString("prefix",
+			mcp.Description("Key prefix to filter by (e.g. 'session/project/' or '' for all)"),
+		),
+	)
+
+	return server.ServerTool{
+		Tool: opt,
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			prefix, _ := args["prefix"].(string)
+			if prefix == "" {
+				prefix = "session/"
+			}
+
+			keys, err := s.SessionList(prefix)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error listing sessions: %v", err)), nil
+			}
+			if len(keys) == 0 {
+				return mcp.NewToolResultText("No sessions found."), nil
+			}
+
+			result := fmt.Sprintf("Found %d session keys:\n%s", len(keys), strings.Join(keys, "\n"))
+			return mcp.NewToolResultText(result), nil
+		},
+	}
+}
+
+// ─── session_compact ─────────────────────────────────────────────────────────────
+
+// sessionCompactTool cleans up old timestamped session entries.
+func sessionCompactTool(s *Storage) server.ServerTool {
+	opt := mcp.NewTool("session_compact",
+		mcp.WithDescription(`Delete timestamped session snapshots older than max_age. Never deletes */latest keys.
+Runs automatically on server startup. Can be called manually to reclaim space.`),
+		mcp.WithNumber("max_age_hours",
+			mcp.Description("Maximum age in hours (default: 168 = 7 days)"),
+		),
+	)
+
+	return server.ServerTool{
+		Tool: opt,
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			maxAgeHours := 168
+			if v, ok := args["max_age_hours"].(float64); ok {
+				maxAgeHours = int(v)
+			}
+			if maxAgeHours <= 0 {
+				maxAgeHours = 168
+			}
+
+			deleted, err := s.SessionCompact(time.Duration(maxAgeHours) * time.Hour)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Compact error: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(fmt.Sprintf("Compacted sessions: %d old entries removed", deleted)), nil
 		},
 	}
 }
