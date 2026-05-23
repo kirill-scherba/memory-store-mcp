@@ -64,8 +64,8 @@ github.com/kirill-scherba/keyvalembd v0.1.0 h1:28EFrUS3TLYYiy21yvySnt/cE5fQ2XvMf
 github.com/kirill-scherba/keyvalembd v0.1.0/go.mod h1:3yiVWT9zESz/vzMszxIMvwrJdtbA+AVQB6SguO1oMU0=
 github.com/kirill-scherba/s3lite v0.1.2 h1:M8bggzBMq8ePhYjAt9x5EWHP0H6vq2mYe4+/WdmRoQg=
 github.com/kirill-scherba/s3lite v0.1.2/go.mod h1:8js2HaPufjMSMPVd8CjlCT/s/+9S1q3oG7hWM4QXs0g=
-github.com/kirill-scherba/sqlh v0.5.1 h1:a/uFJEjYclqCFjXJcgHM1ay/jOgdhwPJeGlAfg+WfNw=
-github.com/kirill-scherba/sqlh v0.5.1/go.mod h1:o+TU+Cp+KqfwYVX9fHMaG1C1p8ic4TxNJASl2lVPH3A=
+github.com/kirill-scherba/sqlh v0.6.1 h1:uD0+5mu1F/JDUdsR0ryqwFPOFO98edK3N+nbSAHvHv4=
+github.com/kirill-scherba/sqlh v0.6.1/go.mod h1:o+TU+Cp+KqfwYVX9fHMaG1C1p8ic4TxNJASl2lVPH3A=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.12.3 h1:G5AfA94pHPysR56qqrkO2pxEexdDzrpFJ6yt/VqWxVU=
