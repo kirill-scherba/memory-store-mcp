@@ -77,20 +77,6 @@ func ExtractFacts(text string) ([]ExtractedFact, error) {
 // suggestSystemPrompt returns the system prompt for the suggestion LLM call.
 // The lang parameter controls the output language ("ru" for Russian, "en" for English).
 func suggestSystemPrompt(lang string) string {
-	// 	if lang == "ru" {
-	// 		return `Ты — проактивный помощник, который анализирует контекст и цели, чтобы предлагать следующие шаги.
-	// Верни ТОЛЬКО JSON-массив объектов предложений. Каждое предложение содержит:
-	// - type: один из "reminder", "followup", "goal_next_step", "insight"
-	// - title: короткий заголовок (макс 60 символов)
-	// - description: краткое описание (макс 200 символов)
-	// - priority: целое число 0-10
-
-	// ВАЖНОЕ ПРАВИЛО: Все заголовки и описания должны быть на РУССКОМ языке.
-
-	// Пример:
-	// [{"type":"goal_next_step","title":"Настроить CI/CD пайплайн","description":"Вы обсуждали настройку CI/CD для Cooksy. Хорошим следующим шагом будет определить workflow развёртывания.","priority":8}]`
-	// 	}
-
 	var additional string
 	if lang == "ru" {
 		additional = "\n\nВАЖНОЕ ПРАВИЛО: Все заголовки и описания должны быть на РУССКОМ языке."
