@@ -62,10 +62,14 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/kirill-scherba/keyvalembd v0.1.0 h1:28EFrUS3TLYYiy21yvySnt/cE5fQ2XvMf/OzS+pJsZ4=
 github.com/kirill-scherba/keyvalembd v0.1.0/go.mod h1:3yiVWT9zESz/vzMszxIMvwrJdtbA+AVQB6SguO1oMU0=
+github.com/kirill-scherba/keyvalembd v0.2.0 h1:mrVpZnIWhXDDhYTej3WbRrcjFJWKOi4kA4h4vRRgv0s=
+github.com/kirill-scherba/keyvalembd v0.2.0/go.mod h1:aW5DyV54iUXXXfhiWMiHivFPM9BOkei4dIjorbWDz0s=
 github.com/kirill-scherba/s3lite v0.1.2 h1:M8bggzBMq8ePhYjAt9x5EWHP0H6vq2mYe4+/WdmRoQg=
 github.com/kirill-scherba/s3lite v0.1.2/go.mod h1:8js2HaPufjMSMPVd8CjlCT/s/+9S1q3oG7hWM4QXs0g=
 github.com/kirill-scherba/sqlh v0.6.1 h1:uD0+5mu1F/JDUdsR0ryqwFPOFO98edK3N+nbSAHvHv4=
 github.com/kirill-scherba/sqlh v0.6.1/go.mod h1:o+TU+Cp+KqfwYVX9fHMaG1C1p8ic4TxNJASl2lVPH3A=
+github.com/kirill-scherba/sqlh v0.8.1 h1:/hNOn6uWcfZXdisDFYY5stAGuJcFMMnr/SDlG77Dr1w=
+github.com/kirill-scherba/sqlh v0.8.1/go.mod h1:iLjZZEMpwREj0IBCZkkcZbUxXZAw2zQXZZIl71CyI7A=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.12.3 h1:G5AfA94pHPysR56qqrkO2pxEexdDzrpFJ6yt/VqWxVU=
