@@ -168,6 +168,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 - **Bug #5**: Digest skipped entries without Summary — changed to `Summary → Content → Key` fallback
 - **Bug #6**: Duplicate code block in `notebook.go` — removed 14-line identical block
 - **Bug #7**: `formatTimelineResults` showed empty lines — added content/key fallback + calendar emoji
+- **Issue #22**: `storage.go` dead code in `GetContext()` — removed useless `json.Unmarshal` of search key as `MemoryValue` (#27)
 
 ## Next Steps (PLAN-002)
 
