@@ -745,6 +745,7 @@ Return a JSON array of suggestions. Each suggestion has: type (reminder/followup
 // Helpers
 // ---------------------------------------------------------------------------
 
+// normalizeLabels deduplicates, trims, and removes empty entries from a label slice.
 func normalizeLabels(labels []string) []string {
 	seen := make(map[string]bool, len(labels))
 	normalized := make([]string, 0, len(labels))
@@ -759,6 +760,7 @@ func normalizeLabels(labels []string) []string {
 	return normalized
 }
 
+// parseStoredLabels unmarshals a JSON label string and normalizes the result.
 func parseStoredLabels(labelsJSON string) []string {
 	var labels []string
 	if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
@@ -767,6 +769,7 @@ func parseStoredLabels(labelsJSON string) []string {
 	return normalizeLabels(labels)
 }
 
+// countSubtasksFromDescription counts completed ([x]) and total subtasks from Markdown-style task lists in a goal description.
 func countSubtasksFromDescription(description string) (done, total int) {
 	re := regexp.MustCompile(`(?m)^\s*[-*+]\s+\[([ xX])\]`)
 	for _, match := range re.FindAllStringSubmatch(description, -1) {
