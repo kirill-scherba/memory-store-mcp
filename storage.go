@@ -415,21 +415,23 @@ func (s *Storage) GetGoal(id string) (*Goal, error) {
 // ListGoals returns goals filtered by status and labels. If status is empty,
 // returns all statuses. Labels are matched as JSON strings in the labels column.
 func (s *Storage) ListGoals(status string, labelsFilter []string) ([]Goal, error) {
-	var wheres []interface{}
+	var wheres []sqlh.Where
 
 	if status != "" {
 		wheres = append(wheres, sqlh.Where{Field: "status=", Value: status})
 	}
 	for _, label := range normalizeLabels(labelsFilter) {
-		wheres = append(wheres, sqlh.Where{Field: "labels LIKE", Value: `%"` + label + `%"`})
+		wheres = append(wheres, sqlh.Where{Field: "labels LIKE", Value: `%"` + label + `"%`})
 	}
 
 	var listErr error
+	listAttrs := []any{func(err error) { listErr = err }}
+	for _, where := range wheres {
+		listAttrs = append(listAttrs, where)
+	}
+
 	var goals []Goal
-	for _, row := range sqlh.ListRange[goalRow](
-		s.goals, 0, "", "priority DESC, created_at DESC", 1000,
-		append([]any{func(err error) { listErr = err }}, wheres...)...,
-	) {
+	for _, row := range sqlh.ListRange[goalRow](s.goals, 0, "", "priority DESC, created_at DESC", 1000, listAttrs...) {
 		goals = append(goals, *row.toGoal())
 	}
 	if listErr != nil {
@@ -499,6 +501,10 @@ func (s *Storage) UpdateGoal(id, title, description, status, deadline string, pr
 func (s *Storage) DeleteGoal(id string) error {
 	if id == "" {
 		return fmt.Errorf("goal id is required")
+	}
+	// Verify the goal exists before deleting.
+	if _, err := s.GetGoal(id); err != nil {
+		return fmt.Errorf("goal %s not found: %w", id, err)
 	}
 	if err := sqlh.Delete[goalRow](s.goals, sqlh.Where{Field: "id=", Value: id}); err != nil {
 		return fmt.Errorf("delete goal %s: %w", id, err)

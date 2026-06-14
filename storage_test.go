@@ -297,19 +297,11 @@ func TestListGoalsByLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListGoals(labels=[bug]) error = %v", err)
 	}
-	// sqlh LIKE query may not reliably match JSON arrays in all versions;
-	// just verify no panic/error and that non-empty labels exist
-	if len(goals) > 0 {
-		found := false
-		for _, g := range goals {
-			if g.Title == "With Bug" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Logf("ListGoals(labels=[bug]) did not return 'With Bug'; returned %d goals", len(goals))
-		}
+	if len(goals) != 1 {
+		t.Fatalf("ListGoals(labels=[bug]) = %d goals, want 1", len(goals))
+	}
+	if goals[0].Title != "With Bug" {
+		t.Fatalf("ListGoals(labels=[bug])[0].Title = %q, want With Bug", goals[0].Title)
 	}
 }
 
@@ -395,10 +387,9 @@ func TestDeleteGoalMissing(t *testing.T) {
 	store, _ := NewStorage(filepath.Join(t.TempDir(), "memory.db"))
 	defer store.Close()
 
-	// sqlh.Delete may not error on non-existent rows; just verify no panic
-	err := store.DeleteGoal("goal/nonexistent/123")
-	if err != nil {
-		t.Logf("DeleteGoal(nonexistent) returned error: %v (this is acceptable)", err)
+	// Deleting a non-existent goal should return an error.
+	if err := store.DeleteGoal("goal/nonexistent/123"); err == nil {
+		t.Fatal("DeleteGoal(nonexistent) error = nil, want error")
 	}
 }
 

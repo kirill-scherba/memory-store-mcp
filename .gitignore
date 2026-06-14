@@ -3,3 +3,6 @@
 /cmd/memory-cli/memory-store-mcp
 /cmd/memory-cli/memory-cli
 telegram/bot_start.sh
+
+# Test binaries
+*.test
