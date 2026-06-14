@@ -323,10 +323,6 @@ func (s *Storage) GetContext(query string, limit int) (*ContextResult, error) {
 	result.TotalCount = len(searchResults)
 
 	for _, sr := range searchResults {
-		var val MemoryValue
-		if err := json.Unmarshal([]byte(sr.Key), &val); err == nil {
-			// If the key itself is valid JSON, we need to fetch the value
-		}
 		// Fetch actual value by key
 		value, err := s.Get(sr.Key)
 		if err != nil {
