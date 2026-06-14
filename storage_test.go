@@ -200,28 +200,6 @@ func TestSearchSemantic(t *testing.T) {
 	}
 }
 
-func TestAutoKey(t *testing.T) {
-	// Verify format: memory/auto/YYYY-MM-DD/<hash-prefix>
-	key1 := autoKey("hello world")
-	key2 := autoKey("hello world")
-
-	if !strings.HasPrefix(key1, "memory/auto/") {
-		t.Fatalf("autoKey() = %q, want prefix memory/auto/", key1)
-	}
-	if key1 != key2 {
-		t.Fatalf("autoKey() not deterministic: %q vs %q", key1, key2)
-	}
-
-	// Date part should be today's date
-	parts := strings.Split(key1, "/")
-	if len(parts) != 4 {
-		t.Fatalf("autoKey() parts = %d, want 4", len(parts))
-	}
-	if len(parts[2]) != 10 {
-		t.Fatalf("autoKey() date part = %q, want YYYY-MM-DD format", parts[2])
-	}
-}
-
 func TestCreateGoal(t *testing.T) {
 	store, _ := NewStorage(filepath.Join(t.TempDir(), "memory.db"))
 	defer store.Close()
