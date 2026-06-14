@@ -45,11 +45,11 @@
 
 - [x] README updated with all features
 - [x] Unit tests for goals and LLM
+- [x] Comprehensive test coverage: 55.2% main package, 22% CLI
 - [x] LLM agent for Telegram (structured JSON commands with fallback)
 - [x] Bot logging system with file rotation (stderr + file)
 - [x] Telegram assistant unit tests (mock-based, 810 lines)
 - [ ] `--debug` flag and log levels
-- [ ] Integration tests (end-to-end)
 - [ ] Performance benchmarks
 - [ ] Docker image for one-command deployment
 
@@ -67,6 +67,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 
 | Date | Commit | Description |
 |------|--------|-------------|
+| 2026-06-14 | *branch* | test: add comprehensive test coverage for storage, tools, extraction, CLI (#20) |
 | 2026-05-07 | `1f982c5` | fix: swap phi4-mini → qwen2.5-coder:7b, refactor brace JSON parsing |
 | 2026-05-07 | *uncommitted* | fix: add fallback key display, digest Summary→Content→Key chain, safe CreatedAt truncation, remove duplicate code in notebook.go |
 | 2026-05-06 | `11d8542` | Return raw key for Telegram notes |
