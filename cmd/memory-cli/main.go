@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func main() {
+func newRootCmd() *cobra.Command {
 	var dbPath, chatModel, serverURL string
 
 	rootCmd := &cobra.Command{
@@ -52,7 +52,11 @@ Examples:
 	rootCmd.AddCommand(newTimelineCmd())
 	rootCmd.AddCommand(newSuggestCmd())
 
-	if err := rootCmd.Execute(); err != nil {
+	return rootCmd
+}
+
+func main() {
+	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
