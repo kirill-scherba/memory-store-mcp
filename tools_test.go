@@ -34,9 +34,9 @@ func TestMemorySaveTool(t *testing.T) {
 	tool := memorySaveTool(store)
 
 	req := newToolRequest(map[string]interface{}{
-		"key":     "memory/test/tool-save",
-		"value":   `{"content":"test content","tags":["test"]}`,
-		"text":    "test content for embedding",
+		"key":   "memory/test/tool-save",
+		"value": `{"content":"test content","tags":["test"]}`,
+		"text":  "test content for embedding",
 	})
 
 	res, err := tool.Handler(context.Background(), req)
