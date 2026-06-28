@@ -1,5 +1,7 @@
 # memory-store-mcp 🧠
 
+![memory-store-mcp](https://repository-images.githubusercontent.com/1225370626/1bdcda9d-81da-4046-9d4a-6a1696c46482)
+
 **MCP server for persistent AI memory with semantic search, goal tracking, and proactive suggestions.**
 
 Long-term memory for AI assistants that survives sessions. Store facts, observations, goals, and knowledge — find them later by meaning, not just keywords. The assistant automatically saves context and injects relevant memories before each response.
