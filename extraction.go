@@ -183,5 +183,59 @@ func (s *Storage) GetContextForInjection(query string, limit int) (string, error
 		}
 	}
 
+	// Upcoming reminders: automatically list all memory/reminder/* entries
+	// with a date >= yesterday, so they always appear in context.
+	// Uses recursive folder traversal (memory/reminder/YYYY-MM-DD/key).
+	const reminderPrefix = "memory/reminder/"
+	reminders := s.listReminders(reminderPrefix)
+	if len(reminders) > 0 {
+		parts = append(parts, "\n=== Upcoming reminders ===")
+		parts = append(parts, reminders...)
+	}
+
 	return time.Now().UTC().Format("2006-01-02 15:04:05") + "\n" + strings.Join(parts, "\n"), nil
+}
+
+// listReminders recursively lists reminder keys under the given prefix,
+// filters out entries with dates older than yesterday, and returns formatted strings.
+func (s *Storage) listReminders(prefix string) []string {
+	keys, err := s.List(prefix)
+	if err != nil || len(keys) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+	var reminders []string
+
+	for _, key := range keys {
+		if strings.HasSuffix(key, "/") {
+			// Folder — recurse into it
+			reminders = append(reminders, s.listReminders(key)...)
+			continue
+		}
+
+		mem, err := s.Get(key)
+		if err != nil || mem == nil {
+			continue
+		}
+
+		// Filter by date from key: memory/reminder/YYYY-MM-DD/name
+		include := true
+		parts := strings.Split(key, "/")
+		if len(parts) >= 4 {
+			if d, err := time.Parse("2006-01-02", parts[2]); err == nil {
+				if d.Before(now.Add(-24 * time.Hour)) {
+					include = false
+				}
+			}
+		}
+
+		if !include {
+			continue
+		}
+
+		reminders = append(reminders, fmt.Sprintf("- [%s] %s", key, mem.Content))
+	}
+
+	return reminders
 }
