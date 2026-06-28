@@ -78,6 +78,98 @@ func TestMemorySaveToolAutoKey(t *testing.T) {
 	}
 }
 
+func TestMemorySaveToolArbitraryJSON(t *testing.T) {
+	store := newTestStorage(t)
+	tool := memorySaveTool(store)
+	value := `{"wife":"Эка","city":"Москва","beer":"Budweiser Budvar"}`
+
+	req := newToolRequest(map[string]interface{}{
+		"key":   "memory/test/arbitrary-json",
+		"value": value,
+		"text":  "arbitrary user data",
+	})
+
+	res, err := tool.Handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Handler error = %v", err)
+	}
+	text := res.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "Memory saved") {
+		t.Fatalf("Result = %q, want 'Memory saved'", text)
+	}
+
+	// Verify the raw JSON value was preserved as Content
+	got, _ := store.Get("memory/test/arbitrary-json")
+	if got == nil {
+		t.Fatal("Get returned nil")
+	}
+	if got.Content != value {
+		t.Fatalf("Content = %q, want %q", got.Content, value)
+	}
+}
+
+func TestMemorySaveToolArbitraryJSONTimestamp(t *testing.T) {
+	store := newTestStorage(t)
+	tool := memorySaveTool(store)
+
+	req := newToolRequest(map[string]interface{}{
+		"key":   "memory/test/arbitrary-json-timestamp",
+		"value": `{"foo":"bar","baz":123}`,
+		"text":  "arbitrary user data",
+	})
+
+	res, err := tool.Handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Handler error = %v", err)
+	}
+	text := res.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "Memory saved") {
+		t.Fatalf("Result = %q, want 'Memory saved'", text)
+	}
+
+	got, _ := store.Get("memory/test/arbitrary-json-timestamp")
+	if got == nil {
+		t.Fatal("Get returned nil")
+	}
+	if got.Content == "" {
+		t.Fatal("Content is empty — raw JSON was not preserved")
+	}
+	if got.Timestamp == "" {
+		t.Fatal("Timestamp is empty — should be auto-populated by Save()")
+	}
+}
+
+func TestMemorySaveToolStructuredValue(t *testing.T) {
+	store := newTestStorage(t)
+	tool := memorySaveTool(store)
+
+	req := newToolRequest(map[string]interface{}{
+		"key":   "memory/test/structured-value",
+		"value": `{"content":"explicit content","summary":"test summary","tags":["test"]}`,
+		"text":  "structured value test",
+	})
+
+	res, err := tool.Handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Handler error = %v", err)
+	}
+	text := res.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "Memory saved") {
+		t.Fatalf("Result = %q, want 'Memory saved'", text)
+	}
+
+	got, _ := store.Get("memory/test/structured-value")
+	if got == nil {
+		t.Fatal("Get returned nil")
+	}
+	if got.Content != "explicit content" {
+		t.Fatalf("Content = %q, want 'explicit content'", got.Content)
+	}
+	if got.Summary != "test summary" {
+		t.Fatalf("Summary = %q, want 'test summary'", got.Summary)
+	}
+}
+
 func TestMemorySaveToolMissingValue(t *testing.T) {
 	store := newTestStorage(t)
 	tool := memorySaveTool(store)
