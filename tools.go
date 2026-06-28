@@ -118,6 +118,13 @@ text (string) — long-form content for semantic search embeddings.
 				return mcp.NewToolResultText(fmt.Sprintf("Error parsing value JSON: %v", err)), nil
 			}
 
+			// Preserve arbitrary JSON as Content when no explicit content or summary
+			// fields were provided, preventing silent data loss for callers that store
+			// raw JSON instead of the MemoryValue structure.
+			if memVal.Content == "" && memVal.Summary == "" {
+				memVal.Content = value
+			}
+
 			savedKey, err := s.Save(key, &memVal, text, autoKey)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error saving memory: %v", err)), nil
