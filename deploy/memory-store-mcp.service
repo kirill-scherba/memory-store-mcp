@@ -1,0 +1,15 @@
+[Unit]
+Description=Memory Store MCP Server (HTTP)
+Documentation=https://github.com/kirill-scherba/memory-store-mcp
+After=network.target ollama.service
+
+[Service]
+Type=simple
+ExecStart=%h/go/src/github.com/kirill-scherba/memory-store-mcp/memory-store-mcp --http 127.0.0.1:7708
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
