@@ -26,7 +26,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
 - **CLI client** — 10 subcommands with formatted output (json/table/summary)
 - **Multi-language suggest** — en/ru support for suggestion prompts, configurable via Telegram user language preference
-- **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`)
+- **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--save-timeout`)
 - **OpenAI-compatible API support** — optional `--llm-api-key` flag for authentication with OpenAI, OpenRouter, Groq, etc.
 - **HTTP/SSE transport** — optional `--http` flag starts the server in HTTP mode with SSE (Server-Sent Events) and JSON-RPC message endpoint, enabling remote clients and multi-client access
 

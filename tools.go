@@ -15,6 +15,17 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// saveTimeout is the maximum duration allowed for memory_save operations,
+// including embedding generation. Set via the --save-timeout flag.
+var saveTimeout = 60 * time.Second
+
+// setSaveTimeout sets the save timeout. The default is 60 seconds.
+func setSaveTimeout(d time.Duration) {
+	if d > 0 {
+		saveTimeout = d
+	}
+}
+
 // logWrap wraps an MCP handler to automatically log usage events.
 func logWrap(name string, s *Storage, fn server.ToolHandlerFunc) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -126,12 +137,12 @@ text (string) — long-form content for semantic search embeddings.
 				memVal.Content = value
 			}
 
-			savedKey, err := s.AsyncSave(key, &memVal, text, autoKey)
-			if err != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("Error saving memory: %v", err)), nil
+			res := s.SaveWithTimeout(saveTimeout, key, &memVal, text, autoKey)
+			if res.Err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error saving memory: %v", res.Err)), nil
 			}
 
-			result := fmt.Sprintf("Memory saved\nKey: %s", savedKey)
+			result := fmt.Sprintf("Memory saved\nKey: %s\nElapsed: %v", res.Key, res.Elapsed)
 			return mcp.NewToolResultText(result), nil
 		},
 	}
