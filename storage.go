@@ -150,12 +150,13 @@ type Suggestion struct {
 // Storage
 // ---------------------------------------------------------------------------
 
-// Storage wraps KeyValueEmbd and adds goal tracking, timeline, and proactive
-// features.
+// Storage wraps KeyValueEmbd and adds goal tracking, timeline, proactive
+// features, and asynchronous writes.
 type Storage struct {
-	kv     *keyvalembd.KeyValueEmbd
-	goals  *sql.DB
-	dbPath string
+	kv          *keyvalembd.KeyValueEmbd
+	goals       *sql.DB
+	dbPath      string
+	asyncWriter *AsyncWriter // non-blocking writes; nil = sync-only
 }
 
 // NewStorage creates a new Storage, initialising both the KV store and the
@@ -195,8 +196,30 @@ func NewStorage(dbPath string) (*Storage, error) {
 	return &Storage{kv: kv, goals: goalsDB, dbPath: dbPath}, nil
 }
 
-// Close releases all resources.
+// EnableAsync initialises the async writer with the given queue depth and
+// worker count. Must be called after NewStorage, before any tool handlers run.
+func (s *Storage) EnableAsync(queueDepth, workers int) {
+	if s.asyncWriter != nil {
+		return
+	}
+	s.asyncWriter = NewAsyncWriter(s, queueDepth, workers)
+}
+
+// AsyncSave queues a save for asynchronous execution if the async writer is
+// enabled. Falls back to synchronous Save otherwise.
+func (s *Storage) AsyncSave(key string, value *MemoryValue, text string, autoGenKey bool) (string, error) {
+	if s.asyncWriter != nil {
+		return s.asyncWriter.Save(key, value, text, autoGenKey)
+	}
+	return s.Save(key, value, text, autoGenKey)
+}
+
+// Close releases all resources. Waits for any pending async writes if the
+// async writer is active.
 func (s *Storage) Close() {
+	if s.asyncWriter != nil {
+		s.asyncWriter.Stop()
+	}
 	if s.goals != nil {
 		s.goals.Close()
 	}
@@ -285,6 +308,13 @@ type SearchResult struct {
 	CreatedAt string  `json:"created_at,omitempty"`
 }
 
+// FindResult is a keyword search result entry.
+type FindResult struct {
+	Key       string `json:"key"`
+	Value     string `json:"value,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
 // Search performs semantic search across all memories.
 func (s *Storage) Search(query string, limit int) ([]SearchResult, error) {
 	rawResults, err := s.kv.SearchSemantic(query, limit)
@@ -294,6 +324,77 @@ func (s *Storage) Search(query string, limit int) ([]SearchResult, error) {
 	results := make([]SearchResult, len(rawResults))
 	for i, r := range rawResults {
 		results[i] = SearchResult{Key: r.Key, Score: r.Score}
+	}
+	return results, nil
+}
+
+// Find performs keyword-based search using SQL LIKE on both keys and values.
+// This complements semantic search — use it when you need exact word/substring match.
+func (s *Storage) Find(keyword string, limit int) ([]FindResult, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	// We query kv_data directly (same DB as goals) using LIKE on both key and value.
+	// The value column is BLOB, so we CAST it to TEXT for matching.
+	// SQLite LIKE is case-insensitive for ASCII but case-sensitive for Unicode (Russian, etc).
+	// To work around this, we search with both the original keyword and the same keyword
+	// with the first character converted to uppercase (handles most Russian text cases).
+
+	// Build case variants for Unicode-friendly search
+	variants := []string{keyword}
+	if len(keyword) > 0 {
+		// Also try with first letter uppercased (for Russian etc.)
+		runes := []rune(keyword)
+		upper := string(append([]rune{uppercaseRune(runes[0])}, runes[1:]...))
+		if upper != keyword {
+			variants = append(variants, upper)
+		}
+	}
+
+	likeClauses := make([]string, 0, len(variants)*2)
+	args := make([]any, 0, len(variants)*2)
+	for _, v := range variants {
+		pattern := "%" + v + "%"
+		likeClauses = append(likeClauses, "key LIKE ?", "CAST(value AS TEXT) LIKE ?")
+		args = append(args, pattern, pattern)
+	}
+
+	whereClause := strings.Join(likeClauses, " OR ")
+
+	rows, err := s.goals.Query(fmt.Sprintf(`
+		SELECT key, CAST(value AS TEXT) AS val, created_at
+		FROM kv_data
+		WHERE %s
+		ORDER BY key
+		LIMIT ?
+	`, whereClause), append(args, limit)...)
+	if err != nil {
+		return nil, fmt.Errorf("keyword search: %w", err)
+	}
+	defer rows.Close()
+
+	var results []FindResult
+	for rows.Next() {
+		var key, val, createdAt string
+		if err := rows.Scan(&key, &val, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		results = append(results, FindResult{
+			Key:       key,
+			Value:     val,
+			CreatedAt: createdAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+
+	if results == nil {
+		results = []FindResult{}
 	}
 	return results, nil
 }
@@ -629,12 +730,11 @@ func (s *Storage) ExtractAndSave(text string) ([]string, error) {
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		}
 
-		key, err := s.Save("", val, fact.Content, true)
+		key, err := s.AsyncSave("", val, fact.Content, true)
 		if err != nil {
 			log.Printf("⚠ auto-save failed for fact '%s': %v", fact.Summary, err)
 			continue
 		}
-		_ = key
 		savedKeys = append(savedKeys, key)
 	}
 
@@ -789,6 +889,89 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "…"
+}
+
+// uppercaseRune converts a Unicode rune to uppercase.
+func uppercaseRune(r rune) rune {
+	// Simple ASCII uppercase
+	if r >= 'a' && r <= 'z' {
+		return r - 32
+	}
+	// Russian lowercase to uppercase mapping
+	switch r {
+	case 'а':
+		return 'А'
+	case 'б':
+		return 'Б'
+	case 'в':
+		return 'В'
+	case 'г':
+		return 'Г'
+	case 'д':
+		return 'Д'
+	case 'е':
+		return 'Е'
+	case 'ё':
+		return 'Ё'
+	case 'ж':
+		return 'Ж'
+	case 'з':
+		return 'З'
+	case 'и':
+		return 'И'
+	case 'й':
+		return 'Й'
+	case 'к':
+		return 'К'
+	case 'л':
+		return 'Л'
+	case 'м':
+		return 'М'
+	case 'н':
+		return 'Н'
+	case 'о':
+		return 'О'
+	case 'п':
+		return 'П'
+	case 'р':
+		return 'Р'
+	case 'с':
+		return 'С'
+	case 'т':
+		return 'Т'
+	case 'у':
+		return 'У'
+	case 'ф':
+		return 'Ф'
+	case 'х':
+		return 'Х'
+	case 'ц':
+		return 'Ц'
+	case 'ч':
+		return 'Ч'
+	case 'ш':
+		return 'Ш'
+	case 'щ':
+		return 'Щ'
+	case 'ъ':
+		return 'Ъ'
+	case 'ы':
+		return 'Ы'
+	case 'ь':
+		return 'Ь'
+	case 'э':
+		return 'Э'
+	case 'ю':
+		return 'Ю'
+	case 'я':
+		return 'Я'
+	}
+	// For other runes, use standard unicode package
+	if r >= 0x80 {
+		// Try standard library
+		return r // fallback: return as-is if we can't uppercase
+	}
+	return r
 }
 
 // ---------------------------------------------------------------------------

@@ -51,6 +51,7 @@ Examples:
 	rootCmd.AddCommand(newGoalsCmd())
 	rootCmd.AddCommand(newTimelineCmd())
 	rootCmd.AddCommand(newSuggestCmd())
+	rootCmd.AddCommand(newFindCmd())
 
 	return rootCmd
 }

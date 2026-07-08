@@ -337,22 +337,33 @@ func renderTimelineSummary(entries []timelineRow) string {
 // Search output
 // ---------------------------------------------------------------------------
 
-// searchRow is a parsed search result.
+// searchRow is a parsed search result (supports both flat and nested value format).
 type searchRow struct {
-	Key   string  `json:"key"`
-	Score float64 `json:"score"`
-	Value struct {
+	Key     string  `json:"key"`
+	Score   float64 `json:"score"`
+	Content string  `json:"content"`
+	Value   *struct {
 		Content string `json:"content"`
 		Summary string `json:"summary"`
-	} `json:"value"`
+	} `json:"value,omitempty"`
 }
 
 func parseSearchJSON(raw string) ([]searchRow, error) {
-	var rows []searchRow
-	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
-		return nil, err
+	// Try flat format first (enriched: {key, score, content})
+	var flat []searchRow
+	if err := json.Unmarshal([]byte(raw), &flat); err == nil {
+		// Fill content from nested value if flat content is empty
+		for i, r := range flat {
+			if r.Content == "" && r.Value != nil {
+				flat[i].Content = r.Value.Content
+				if flat[i].Content == "" {
+					flat[i].Content = r.Value.Summary
+				}
+			}
+		}
+		return flat, nil
 	}
-	return rows, nil
+	return nil, fmt.Errorf("parse search results")
 }
 
 func formatSearch(raw string, format OutputFormat) string {
@@ -372,12 +383,11 @@ func formatSearch(raw string, format OutputFormat) string {
 		fmt.Fprintln(w, "---------\t---\t-------")
 		for _, r := range rows {
 			score := fmt.Sprintf("%.0f%%", r.Score*100)
-			content := r.Value.Content
+			content := r.Content
 			if content == "" {
-				content = r.Value.Summary
+				content = "(no content)"
 			}
-			shortKey := shortenID(r.Key, 28)
-			fmt.Fprintf(w, "%s\t%s\t%s\n", score, shortKey, truncate(content, 60))
+			fmt.Fprintf(w, "%s\t%s\t%s\n", score, r.Key, truncate(content, 80))
 		}
 		w.Flush()
 		return b.String()
@@ -385,9 +395,9 @@ func formatSearch(raw string, format OutputFormat) string {
 		var lines []string
 		for _, r := range rows {
 			score := fmt.Sprintf("%.0f%%", r.Score*100)
-			content := r.Value.Content
+			content := r.Content
 			if content == "" {
-				content = r.Value.Summary
+				content = "(no content)"
 			}
 			lines = append(lines, fmt.Sprintf("[%s] %s", score, truncate(content, 80)))
 		}

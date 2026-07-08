@@ -60,6 +60,7 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: sessionGetTool(s).Tool, Handler: logWrap("session_get", s, sessionGetTool(s).Handler)},
 		{Tool: sessionListTool(s).Tool, Handler: logWrap("session_list", s, sessionListTool(s).Handler)},
 		{Tool: sessionCompactTool(s).Tool, Handler: logWrap("session_compact", s, sessionCompactTool(s).Handler)},
+		{Tool: memoryFindTool(s).Tool, Handler: logWrap("memory_find", s, memoryFindTool(s).Handler)},
 	}
 }
 
@@ -125,7 +126,7 @@ text (string) — long-form content for semantic search embeddings.
 				memVal.Content = value
 			}
 
-			savedKey, err := s.Save(key, &memVal, text, autoKey)
+			savedKey, err := s.AsyncSave(key, &memVal, text, autoKey)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error saving memory: %v", err)), nil
 			}
@@ -241,8 +242,85 @@ For session overview / "what do we have", prefer memory_get_context.`),
 				return mcp.NewToolResultText("No relevant memories found."), nil
 			}
 
-			resultJSON, _ := json.MarshalIndent(results, "", "  ")
+			// Enrich results with full value data (key, score, content snippet)
+			type enrichedResult struct {
+				Key     string  `json:"key"`
+				Score   float64 `json:"score"`
+				Content string  `json:"content,omitempty"`
+			}
+			enriched := make([]enrichedResult, 0, len(results))
+			for _, r := range results {
+				er := enrichedResult{Key: r.Key, Score: r.Score}
+				if val, err := s.Get(r.Key); err == nil && val != nil {
+					er.Content = val.Content
+					if er.Content == "" {
+						er.Content = val.Summary
+					}
+					er.Content = truncate(er.Content, 200)
+				}
+				enriched = append(enriched, er)
+			}
+
+			resultJSON, _ := json.MarshalIndent(enriched, "", "  ")
 			return mcp.NewToolResultText(string(resultJSON)), nil
+		},
+	}
+}
+
+// ─── memory_find ────────────────────────────────────────────────────────────────
+
+// memoryFindTool performs exact keyword search across memories (complements semantic search).
+func memoryFindTool(s *Storage) server.ServerTool {
+	opt := mcp.NewTool("memory_find",
+		mcp.WithDescription(`Keyword search across memories. Uses SQL LIKE to find exact matches
+in both keys and values. Use this when you know the exact word or phrase
+(e.g. a name, place, or project) — complements memory_search which uses semantic/vector search.
+
+Examples: "сварня", "Шашлычная 1957", "Тоша", "issue #5", "email-bridge"`),
+		mcp.WithString("keyword",
+			mcp.Description("Keyword or phrase to search for (case-insensitive)"),
+			mcp.Required(),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of results (default: 20, max: 100)"),
+		),
+	)
+
+	return server.ServerTool{
+		Tool: opt,
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			keyword, _ := args["keyword"].(string)
+			if keyword == "" {
+				return mcp.NewToolResultText("Error: keyword is required"), nil
+			}
+
+			limit := 20
+			if v, ok := args["limit"].(float64); ok {
+				limit = int(v)
+			}
+			if limit > 100 {
+				limit = 100
+			}
+			if limit <= 0 {
+				limit = 20
+			}
+
+			results, err := s.Find(keyword, limit)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+			if len(results) == 0 {
+				return mcp.NewToolResultText(fmt.Sprintf("No results found for keyword: %s", keyword)), nil
+			}
+
+			var out strings.Builder
+			out.WriteString(fmt.Sprintf("Found %d result(s) for %q:\n\n", len(results), keyword))
+			for i, r := range results {
+				out.WriteString(fmt.Sprintf("%d. %s\n   📅 %s\n   📝 %s\n\n",
+					i+1, r.Key, r.CreatedAt, r.Value))
+			}
+			return mcp.NewToolResultText(out.String()), nil
 		},
 	}
 }

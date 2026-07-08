@@ -107,6 +107,11 @@ func main() {
 	}
 	defer store.Close()
 
+	// Enable asynchronous writes with 1 worker and queue depth 64.
+	// This makes memory_save and memory_extract return immediately
+	// without waiting for embedding generation + SQLite write.
+	store.EnableAsync(64, 1)
+
 	log.Printf("🚀 Starting memory-store-mcp server")
 	log.Printf("   DB path:        %s", *dbPath)
 	log.Printf("   LLM URL:        %s", llmBaseURL())
