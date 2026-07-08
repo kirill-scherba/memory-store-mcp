@@ -226,6 +226,17 @@ func autoKey(content string) string {
 // If autoKey is true, the key is generated from the text; otherwise key is used.
 // The text is used for embedding generation.
 func (s *Storage) Save(key string, value *MemoryValue, text string, autoGenKey bool) (string, error) {
+	finalKey := key
+	if autoGenKey || key == "" {
+		finalKey = autoKey(text)
+	}
+	return s.saveWithKey(finalKey, value, text)
+}
+
+// saveWithKey performs the actual save under the given (already resolved) key.
+// It is separated from Save so that SaveWithTimeout can report the exact key
+// even if the operation times out before completion.
+func (s *Storage) saveWithKey(key string, value *MemoryValue, text string) (string, error) {
 	start := time.Now()
 
 	if value.Timestamp == "" {
@@ -238,22 +249,22 @@ func (s *Storage) Save(key string, value *MemoryValue, text string, autoGenKey b
 	}
 	marshalDur := time.Since(start)
 
-	finalKey := key
-	if autoGenKey || key == "" {
-		finalKey = autoKey(text)
-	}
-
+	// keyvalembd.SetWithEmbedding performs the DB write and embedding generation
+	// in a single call; we cannot split storage-write and embedding timings here
+	// without changing the upstream library. The duration below therefore covers
+	// SQLite write, keyvalembd interaction, Ollama embedding request/retries, and
+	// the embedding upsert combined.
 	setStart := time.Now()
-	_, err = s.kv.SetWithEmbedding(finalKey, jsonValue, text)
+	_, err = s.kv.SetWithEmbedding(key, jsonValue, text)
 	setDur := time.Since(setStart)
 	if err != nil {
 		return "", fmt.Errorf("save to keyvalembd: %w", err)
 	}
 
-	log.Printf("⏱ memory_save: key=%s marshal=%v set+embed=%v total=%v",
-		finalKey, marshalDur, setDur, time.Since(start))
+	log.Printf("⏱ memory_save: key=%s marshal=%v keyvalembd_set_with_embedding=%v total=%v",
+		key, marshalDur, setDur, time.Since(start))
 
-	return finalKey, nil
+	return key, nil
 }
 
 // SaveResult contains the outcome of a timed save operation.
@@ -288,17 +299,24 @@ func runWithTimeout(timeout time.Duration, fn func() (string, error)) SaveResult
 
 // SaveWithTimeout runs Save with a maximum duration. If the timeout elapses,
 // the returned error describes the timeout and the key that was requested.
+// The final key (including auto-generated keys) is computed before the timeout
+// starts, so timeouts always report the key under which the save was attempted.
 // Note: the underlying Save call may continue running in the background if it
 // is blocked on a slow external operation (e.g. Ollama embedding generation).
 func (s *Storage) SaveWithTimeout(timeout time.Duration, key string, value *MemoryValue, text string, autoGenKey bool) SaveResult {
+	finalKey := key
+	if autoGenKey || key == "" {
+		finalKey = autoKey(text)
+	}
+
 	res := runWithTimeout(timeout, func() (string, error) {
-		return s.Save(key, value, text, autoGenKey)
+		return s.saveWithKey(finalKey, value, text)
 	})
 	if res.Err != nil {
-		res.Err = fmt.Errorf("memory_save for key %s: %w (the value was likely saved, but embedding may have been skipped)", key, res.Err)
+		res.Err = fmt.Errorf("memory_save for key %s: %w (the operation may still complete in the background; if the initial database write finished, the embedding may be pending or skipped)", finalKey, res.Err)
 	}
 	if res.Key == "" {
-		res.Key = key
+		res.Key = finalKey
 	}
 	return res
 }

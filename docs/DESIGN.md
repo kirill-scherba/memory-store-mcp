@@ -393,9 +393,14 @@ Values are JSON with the following recommended structure:
 To prevent `memory_save` from appearing to hang during slow Ollama embedding generation, the operation is bounded:
 
 - `--save-timeout` CLI flag (default: `60s`) controls the maximum wall-clock time for `memory_save`, including embedding generation
-- `Storage.SaveWithTimeout` wraps the synchronous `Save` call in a goroutine with a deadline
-- If the deadline elapses, `memory_save` returns a clear error: *"memory_save timed out after ... (the value was likely saved, but embedding may have been skipped)"*
-- Per-stage timing logs are emitted to stderr: `⏱ memory_save: key=... marshal=... set+embed=... total=...`
+- `Storage.SaveWithTimeout` wraps the synchronous save in a goroutine with a deadline
+- The final key (including auto-generated keys) is resolved before the timeout starts, so timeouts always report the exact key under which the save was attempted
+- If the deadline elapses, `memory_save` returns a clear error: *"memory_save for key ... timed out after ... (the operation may still complete in the background; if the initial database write finished, the embedding may be pending or skipped)"*
+- Per-stage timing logs are emitted to stderr:
+  ```
+  ⏱ memory_save: key=... marshal=... keyvalembd_set_with_embedding=... total=...
+  ```
+  The `keyvalembd_set_with_embedding` duration includes the SQLite write, keyvalembd interaction, Ollama embedding request/retries, and embedding upsert combined because `keyvalembd` exposes them as a single operation
 - Result text includes elapsed duration so callers can see how long the save took
 
 The timeout is a server-side guard. The underlying Ollama HTTP call still respects its own 30s client timeout, but the MCP client is no longer blocked indefinitely.
