@@ -226,6 +226,8 @@ func autoKey(content string) string {
 // If autoKey is true, the key is generated from the text; otherwise key is used.
 // The text is used for embedding generation.
 func (s *Storage) Save(key string, value *MemoryValue, text string, autoGenKey bool) (string, error) {
+	start := time.Now()
+
 	if value.Timestamp == "" {
 		value.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -234,18 +236,71 @@ func (s *Storage) Save(key string, value *MemoryValue, text string, autoGenKey b
 	if err != nil {
 		return "", fmt.Errorf("marshal value: %w", err)
 	}
+	marshalDur := time.Since(start)
 
 	finalKey := key
 	if autoGenKey || key == "" {
 		finalKey = autoKey(text)
 	}
 
+	setStart := time.Now()
 	_, err = s.kv.SetWithEmbedding(finalKey, jsonValue, text)
+	setDur := time.Since(setStart)
 	if err != nil {
 		return "", fmt.Errorf("save to keyvalembd: %w", err)
 	}
 
+	log.Printf("⏱ memory_save: key=%s marshal=%v set+embed=%v total=%v",
+		finalKey, marshalDur, setDur, time.Since(start))
+
 	return finalKey, nil
+}
+
+// SaveResult contains the outcome of a timed save operation.
+type SaveResult struct {
+	Key     string
+	Elapsed time.Duration
+	Err     error
+}
+
+// runWithTimeout executes fn and returns its result, or an error if the
+// timeout elapses before fn completes.
+func runWithTimeout(timeout time.Duration, fn func() (string, error)) SaveResult {
+	ch := make(chan SaveResult, 1)
+	go func() {
+		start := time.Now()
+		k, err := fn()
+		ch <- SaveResult{Key: k, Elapsed: time.Since(start), Err: err}
+	}()
+
+	select {
+	case res := <-ch:
+		return res
+	case <-time.After(timeout):
+		return SaveResult{
+			Elapsed: timeout,
+			Err: fmt.Errorf(
+				"timed out after %v (the operation may still be running in the background)",
+				timeout),
+		}
+	}
+}
+
+// SaveWithTimeout runs Save with a maximum duration. If the timeout elapses,
+// the returned error describes the timeout and the key that was requested.
+// Note: the underlying Save call may continue running in the background if it
+// is blocked on a slow external operation (e.g. Ollama embedding generation).
+func (s *Storage) SaveWithTimeout(timeout time.Duration, key string, value *MemoryValue, text string, autoGenKey bool) SaveResult {
+	res := runWithTimeout(timeout, func() (string, error) {
+		return s.Save(key, value, text, autoGenKey)
+	})
+	if res.Err != nil {
+		res.Err = fmt.Errorf("memory_save for key %s: %w (the value was likely saved, but embedding may have been skipped)", key, res.Err)
+	}
+	if res.Key == "" {
+		res.Key = key
+	}
+	return res
 }
 
 // Get retrieves a memory entry by key.

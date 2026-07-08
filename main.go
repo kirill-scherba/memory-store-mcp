@@ -49,6 +49,8 @@ func main() {
 		"Telegram bot token (enables Telegram bot mode)")
 	httpAddr := flag.String("http", "",
 		"HTTP listen address (enables StreamableHTTP transport, e.g. ':8080')")
+	saveTimeout := flag.Duration("save-timeout", 60*time.Second,
+		"Maximum duration for memory_save operations (including embedding generation)")
 	showHelp := flag.Bool("h", false, "Show help")
 	flag.Parse()
 
@@ -66,6 +68,9 @@ func main() {
 
 	// Set chat model
 	setChatModel(*chatModel)
+
+	// Set save timeout (--save-timeout flag)
+	setSaveTimeout(*saveTimeout)
 
 	// Set LLM URL override (--llm-url flag)
 	setLLMURL(*llmURL)
@@ -111,6 +116,7 @@ func main() {
 	log.Printf("   DB path:        %s", *dbPath)
 	log.Printf("   LLM URL:        %s", llmBaseURL())
 	log.Printf("   LLM chat model: %s", *chatModel)
+	log.Printf("   Save timeout:   %v", saveTimeout)
 	if key != "" {
 		masked := key
 		if len(masked) > 8 {

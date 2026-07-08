@@ -104,6 +104,68 @@ func TestSaveDefaultTimestamp(t *testing.T) {
 	}
 }
 
+func TestSaveWithTimeout(t *testing.T) {
+	store, _ := NewStorage(filepath.Join(t.TempDir(), "memory.db"))
+	defer store.Close()
+
+	val := &MemoryValue{Content: "timeout test"}
+	res := store.SaveWithTimeout(5*time.Second, "memory/test/timeout", val, "timeout test", false)
+
+	if res.Err != nil {
+		t.Fatalf("SaveWithTimeout() error = %v", res.Err)
+	}
+	if res.Key != "memory/test/timeout" {
+		t.Fatalf("SaveWithTimeout() key = %q, want memory/test/timeout", res.Key)
+	}
+	if res.Elapsed <= 0 {
+		t.Fatalf("SaveWithTimeout() elapsed = %v, want > 0", res.Elapsed)
+	}
+
+	// Verify the value is actually stored
+	got, err := store.Get("memory/test/timeout")
+	if err != nil {
+		t.Fatalf("Get(after SaveWithTimeout) error = %v", err)
+	}
+	if got.Content != "timeout test" {
+		t.Fatalf("Get().Content = %q, want timeout test", got.Content)
+	}
+}
+
+func TestRunWithTimeoutSuccess(t *testing.T) {
+	res := runWithTimeout(time.Second, func() (string, error) {
+		return "ok", nil
+	})
+	if res.Err != nil {
+		t.Fatalf("runWithTimeout() error = %v", res.Err)
+	}
+	if res.Key != "ok" {
+		t.Fatalf("runWithTimeout() key = %q, want ok", res.Key)
+	}
+}
+
+func TestRunWithTimeoutExpires(t *testing.T) {
+	res := runWithTimeout(1*time.Millisecond, func() (string, error) {
+		time.Sleep(50 * time.Millisecond)
+		return "slow", nil
+	})
+	if res.Err == nil {
+		t.Fatal("runWithTimeout() error = nil, want timeout error")
+	}
+	if res.Key != "" {
+		t.Fatalf("runWithTimeout() key = %q, want empty on timeout", res.Key)
+	}
+}
+
+func TestRunWithTimeoutError(t *testing.T) {
+	testErr := fmt.Errorf("intentional failure")
+	res := runWithTimeout(time.Second, func() (string, error) {
+		return "", testErr
+	})
+	if res.Err != testErr {
+		t.Fatalf("runWithTimeout() error = %v, want %v", res.Err, testErr)
+	}
+}
+
 func TestGetNonExistent(t *testing.T) {
 	store, _ := NewStorage(filepath.Join(t.TempDir(), "memory.db"))
 	defer store.Close()

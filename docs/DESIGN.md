@@ -388,6 +388,18 @@ Values are JSON with the following recommended structure:
 - Non-fatal: if Ollama unavailable, memory is saved without embedding (semantic search won't find it, but CRUD still works)
 - The `text` parameter in `memory_save` is what gets embedded (typically content + summary)
 
+## memory_save Timeout (Issue #18)
+
+To prevent `memory_save` from appearing to hang during slow Ollama embedding generation, the operation is bounded:
+
+- `--save-timeout` CLI flag (default: `60s`) controls the maximum wall-clock time for `memory_save`, including embedding generation
+- `Storage.SaveWithTimeout` wraps the synchronous `Save` call in a goroutine with a deadline
+- If the deadline elapses, `memory_save` returns a clear error: *"memory_save timed out after ... (the value was likely saved, but embedding may have been skipped)"*
+- Per-stage timing logs are emitted to stderr: `⏱ memory_save: key=... marshal=... set+embed=... total=...`
+- Result text includes elapsed duration so callers can see how long the save took
+
+The timeout is a server-side guard. The underlying Ollama HTTP call still respects its own 30s client timeout, but the MCP client is no longer blocked indefinitely.
+
 ## Similarity Search
 
 Cosine similarity computed in Go (not SQL):

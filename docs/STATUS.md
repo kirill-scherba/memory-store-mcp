@@ -170,6 +170,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 - **Bug #6**: Duplicate code block in `notebook.go` — removed 14-line identical block
 - **Bug #7**: `formatTimelineResults` showed empty lines — added content/key fallback + calendar emoji
 - **Issue #22**: `storage.go` dead code in `GetContext()` — removed useless `json.Unmarshal` of search key as `MemoryValue` (#27)
+- **Issue #18**: `memory_save` slow/hangs — added `--save-timeout` flag (default 60s), `SaveWithTimeout` goroutine-based deadline, per-stage timing logs, and tests (#18)
 
 ## Next Steps (PLAN-002)
 
