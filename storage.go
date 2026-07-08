@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -388,6 +389,40 @@ type FindResult struct {
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
+// DigMatch is a single match found by Dig().
+type DigMatch struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at"`
+}
+
+// DigEntry is an entry in the context window around a match.
+type DigEntry struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Summary   string `json:"summary"`
+	CreatedAt string `json:"created_at"`
+	Delta     string `json:"delta"` // relative time from match ("-2h", "+15m")
+}
+
+// DigScene is a single scene with its context window.
+type DigScene struct {
+	Match     DigMatch   `json:"match"`
+	Before    []DigEntry `json:"before"`
+	After     []DigEntry `json:"after"`
+	Relevance int        `json:"relevance"`
+	Keywords  []string   `json:"keywords,omitempty"`
+}
+
+// DigResult is the full result from Dig().
+type DigResult struct {
+	Query    string     `json:"query"`
+	Keywords []string   `json:"keywords,omitempty"`
+	Window   string     `json:"window"`
+	Scenes   []DigScene `json:"scenes"`
+	Total    int        `json:"total"`
+}
+
 // Search performs semantic search across all memories.
 func (s *Storage) Search(query string, limit int) ([]SearchResult, error) {
 	rawResults, err := s.kv.SearchSemantic(query, limit)
@@ -470,6 +505,205 @@ func (s *Storage) Find(keyword string, limit int) ([]FindResult, error) {
 		results = []FindResult{}
 	}
 	return results, nil
+}
+
+// ParseDuration parses a flexible duration string like "30m", "2h", "1d"
+// and returns the corresponding time.Duration.
+func parseFlexDuration(s string) (time.Duration, error) {
+	if len(s) == 0 {
+		return 2 * time.Hour, nil // default window
+	}
+	// Support "1d" (1 day)
+	if strings.HasSuffix(s, "d") {
+		var n int
+		if _, err := fmt.Sscanf(s, "%dd", &n); err != nil {
+			return 0, fmt.Errorf("parse duration %q: %w", s, err)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
+
+// Dig performs a contextual deep-search: finds entries matching query,
+// builds scenes with time-window context before/after, and optionally
+// intersects with additional keywords for relevance ranking.
+//
+// The window parameter is a duration string like "2h", "30m", "1d".
+func (s *Storage) Dig(query string, keywords []string, windowStr string, max int) (*DigResult, error) {
+	// Resolve window duration
+	window, err := parseFlexDuration(windowStr)
+	if err != nil {
+		window = 2 * time.Hour
+	}
+
+	// Step 1: find all matches via keyword search
+	matches, err := s.Find(query, max)
+	if err != nil {
+		return nil, fmt.Errorf("find in dig: %w", err)
+	}
+	if len(matches) == 0 {
+		return &DigResult{
+			Query:    query,
+			Keywords: keywords,
+			Window:   window.String(),
+			Scenes:   []DigScene{},
+			Total:    0,
+		}, nil
+	}
+
+	// Step 2: build scenes
+	var scenes []DigScene
+	for _, m := range matches {
+		matchTime, err := time.Parse(time.RFC3339, m.CreatedAt)
+		if err != nil {
+			continue // skip if we can't parse the time
+		}
+
+		from := matchTime.Add(-window)
+		to := matchTime.Add(window)
+
+		// Query kv_data for entries in the time window
+		windowEntries, err := s.queryTimeWindow(from, to, max*2)
+		if err != nil {
+			continue
+		}
+
+		// Split into before/after (match itself is excluded from both)
+		var before, after []DigEntry
+		sceneKeywordHits := make(map[string]bool)
+
+		for _, we := range windowEntries {
+			if we.Key == m.Key {
+				continue // skip the match itself
+			}
+
+			entryTime, err := time.Parse(time.RFC3339, we.CreatedAt)
+			if err != nil {
+				continue
+			}
+
+			delta := entryTime.Sub(matchTime)
+			deltaStr := fmtDelta(delta)
+			entry := DigEntry{
+				Key:       we.Key,
+				Value:     we.Value,
+				CreatedAt: we.CreatedAt,
+				Delta:     deltaStr,
+			}
+
+			// Check if this entry contains any of the keywords
+			for _, kw := range keywords {
+				if kw != "" && strings.Contains(
+					strings.ToLower(we.Key+" "+we.Value),
+					strings.ToLower(kw),
+				) {
+					sceneKeywordHits[kw] = true
+				}
+			}
+
+			if delta < 0 {
+				before = append(before, entry)
+			} else {
+				after = append(after, entry)
+			}
+		}
+
+		// Calculate relevance: base 50 + 25 per keyword hit (cap 100)
+		relevance := 50
+		if len(sceneKeywordHits) > 0 {
+			relevance += 25 * len(sceneKeywordHits)
+			if relevance > 100 {
+				relevance = 100
+			}
+		}
+
+		kwList := make([]string, 0, len(sceneKeywordHits))
+		for kw := range sceneKeywordHits {
+			kwList = append(kwList, kw)
+		}
+
+		scenes = append(scenes, DigScene{
+			Match: DigMatch{
+				Key:       m.Key,
+				Value:     m.Value,
+				CreatedAt: m.CreatedAt,
+			},
+			Before:    before,
+			After:     after,
+			Relevance: relevance,
+			Keywords:  kwList,
+		})
+	}
+
+	// Step 3: sort by relevance descending
+	sort.Slice(scenes, func(i, j int) bool {
+		return scenes[i].Relevance > scenes[j].Relevance
+	})
+
+	// Limit scenes
+	if len(scenes) > max {
+		scenes = scenes[:max]
+	}
+
+	return &DigResult{
+		Query:    query,
+		Keywords: keywords,
+		Window:   window.String(),
+		Scenes:   scenes,
+		Total:    len(scenes),
+	}, nil
+}
+
+// queryTimeWindow returns all entries from kv_data within the given time range.
+func (s *Storage) queryTimeWindow(from, to time.Time, limit int) ([]FindResult, error) {
+	rows, err := s.goals.Query(`
+		SELECT key, CAST(value AS TEXT) AS val, created_at
+		FROM kv_data
+		WHERE created_at BETWEEN ? AND ?
+		ORDER BY created_at ASC
+		LIMIT ?
+	`, from.Format(time.RFC3339), to.Format(time.RFC3339), limit)
+	if err != nil {
+		return nil, fmt.Errorf("time window query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []FindResult
+	for rows.Next() {
+		var key, val, createdAt string
+		if err := rows.Scan(&key, &val, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan time window row: %w", err)
+		}
+		results = append(results, FindResult{
+			Key:       key,
+			Value:     val,
+			CreatedAt: createdAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("time window rows: %w", err)
+	}
+	if results == nil {
+		results = []FindResult{}
+	}
+	return results, nil
+}
+
+// fmtDelta formats a time.Duration delta as a human-readable string.
+// Negative deltas get a "-" prefix, positive get "+".
+func fmtDelta(d time.Duration) string {
+	abs := d
+	prefix := "+"
+	if d < 0 {
+		abs = -d
+		prefix = "-"
+	}
+	hours := int(abs.Hours())
+	mins := int(abs.Minutes()) % 60
+	if hours > 0 {
+		return fmt.Sprintf("%s%dh%dm", prefix, hours, mins)
+	}
+	return fmt.Sprintf("%s%dm", prefix, mins)
 }
 
 // ---------------------------------------------------------------------------

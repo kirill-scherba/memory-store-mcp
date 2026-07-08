@@ -72,6 +72,7 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: sessionListTool(s).Tool, Handler: logWrap("session_list", s, sessionListTool(s).Handler)},
 		{Tool: sessionCompactTool(s).Tool, Handler: logWrap("session_compact", s, sessionCompactTool(s).Handler)},
 		{Tool: memoryFindTool(s).Tool, Handler: logWrap("memory_find", s, memoryFindTool(s).Handler)},
+		{Tool: memoryDigTool(s).Tool, Handler: logWrap("memory_dig", s, memoryDigTool(s).Handler)},
 	}
 }
 
@@ -332,6 +333,92 @@ Examples: "сварня", "Шашлычная 1957", "Тоша", "issue #5", "em
 					i+1, r.Key, r.CreatedAt, r.Value))
 			}
 			return mcp.NewToolResultText(out.String()), nil
+		},
+	}
+}
+
+// ─── memory_dig ─────────────────────────────────────────────────────────────────
+
+// memoryDigTool performs contextual deep-search with time windows and keyword
+// intersection. Returns structured scenes with context before/after each match.
+func memoryDigTool(s *Storage) server.ServerTool {
+	opt := mcp.NewTool("memory_dig",
+		mcp.WithDescription(`Deep contextual search across memories.
+Finds entries matching the query, builds scenes with context windows (entries
+before and after each match), and optionally intersects with additional keywords
+for relevance ranking.
+
+Use this when you need to understand the full picture around a memory event:
+- "what happened when we ate khinkali" — shows scenes around khinkali events
+- "when I removed the car, what did we discuss" — query + keyword for context
+
+Examples:
+  query="khinkali" — finds all khinkali scenes with context
+  query="car wash" keywords=["khinkali","soaring plate","story"] — finds car
+  wash scenes and ranks by how many of those keywords appear nearby`),
+		mcp.WithString("query",
+			mcp.Description("Primary search query"),
+			mcp.Required(),
+		),
+		mcp.WithArray("keywords",
+			mcp.Description("Additional keywords for relevance ranking (optional)"),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithString("window",
+			mcp.Description("Context window duration: '2h', '30m', '1d' (default: '2h')"),
+		),
+		mcp.WithNumber("max",
+			mcp.Description("Maximum number of scenes to return (default: 10, max: 50)"),
+		),
+	)
+
+	return server.ServerTool{
+		Tool: opt,
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+
+			query, _ := args["query"].(string)
+			if query == "" {
+				return mcp.NewToolResultText("Error: query is required"), nil
+			}
+
+			// Parse keywords (array of strings)
+			var keywords []string
+			if kw, ok := args["keywords"].([]interface{}); ok {
+				for _, v := range kw {
+					if s, ok := v.(string); ok && s != "" {
+						keywords = append(keywords, s)
+					}
+				}
+			}
+
+			window := "2h"
+			if w, ok := args["window"].(string); ok && w != "" {
+				window = w
+			}
+
+			max := 10
+			if v, ok := args["max"].(float64); ok {
+				max = int(v)
+			}
+			if max <= 0 {
+				max = 10
+			}
+			if max > 50 {
+				max = 50
+			}
+
+			result, err := s.Dig(query, keywords, window, max)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+			if result.Total == 0 {
+				return mcp.NewToolResultText(fmt.Sprintf("No scenes found for query %q.", query)), nil
+			}
+
+			data, _ := json.MarshalIndent(result, "", "  ")
+			return mcp.NewToolResultText(fmt.Sprintf("Found %d scene(s) for %q:\n%s",
+				result.Total, query, string(data))), nil
 		},
 	}
 }
