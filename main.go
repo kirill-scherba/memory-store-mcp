@@ -116,7 +116,7 @@ func main() {
 	log.Printf("   DB path:        %s", *dbPath)
 	log.Printf("   LLM URL:        %s", llmBaseURL())
 	log.Printf("   LLM chat model: %s", *chatModel)
-	log.Printf("   Save timeout:   %v", saveTimeout)
+	log.Printf("   Save timeout:   %v", *saveTimeout)
 	if key != "" {
 		masked := key
 		if len(masked) > 8 {

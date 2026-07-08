@@ -339,7 +339,7 @@ When a question is asked in Telegram and an LLM processor is available:
 All server configuration is via CLI flags. Only one environment variable is used:
 
 - **`TELEGRAM_ALLOWED_USERS`** — Comma-separated Telegram user IDs for access control
-- All other config (`--db`, `--model`, `--chat-model`, `--llm-url`, `--telegram`) via CLI flags
+- All other config (`--db`, `--model`, `--chat-model`, `--llm-url`, `--telegram`, `--save-timeout`) via CLI flags
 
 Previously used `os.Getenv` calls have been removed in favour of CLI flags for consistency.
 
