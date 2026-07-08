@@ -339,7 +339,7 @@ When a question is asked in Telegram and an LLM processor is available:
 All server configuration is via CLI flags. Only one environment variable is used:
 
 - **`TELEGRAM_ALLOWED_USERS`** — Comma-separated Telegram user IDs for access control
-- All other config (`--db`, `--model`, `--chat-model`, `--llm-url`, `--telegram`) via CLI flags
+- All other config (`--db`, `--model`, `--chat-model`, `--llm-url`, `--telegram`, `--save-timeout`) via CLI flags
 
 Previously used `os.Getenv` calls have been removed in favour of CLI flags for consistency.
 
@@ -387,6 +387,23 @@ Values are JSON with the following recommended structure:
 - Retry logic with exponential backoff (3 attempts)
 - Non-fatal: if Ollama unavailable, memory is saved without embedding (semantic search won't find it, but CRUD still works)
 - The `text` parameter in `memory_save` is what gets embedded (typically content + summary)
+
+## memory_save Timeout (Issue #18)
+
+To prevent `memory_save` from appearing to hang during slow Ollama embedding generation, the operation is bounded:
+
+- `--save-timeout` CLI flag (default: `60s`) controls the maximum wall-clock time for `memory_save`, including embedding generation
+- `Storage.SaveWithTimeout` wraps the synchronous save in a goroutine with a deadline
+- The final key (including auto-generated keys) is resolved before the timeout starts, so timeouts always report the exact key under which the save was attempted
+- If the deadline elapses, `memory_save` returns a clear error: *"memory_save for key ... timed out after ... (the operation may still complete in the background; if the initial database write finished, the embedding may be pending or skipped)"*
+- Per-stage timing logs are emitted to stderr:
+  ```
+  ⏱ memory_save: key=... marshal=... keyvalembd_set_with_embedding=... total=...
+  ```
+  The `keyvalembd_set_with_embedding` duration includes the SQLite write, keyvalembd interaction, Ollama embedding request/retries, and embedding upsert combined because `keyvalembd` exposes them as a single operation
+- Result text includes elapsed duration so callers can see how long the save took
+
+The timeout is a server-side guard. The underlying Ollama HTTP call still respects its own 30s client timeout, but the MCP client is no longer blocked indefinitely.
 
 ## Similarity Search
 
