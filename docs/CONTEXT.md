@@ -18,17 +18,20 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Semantic search** — vector similarity via Ollama embeddings (embeddinggemma:latest)
 - **Hierarchical keys** — S3-style: `memory/project/...`, `memory/user/...`, `memory/technical/...`
 - **Structured values** — JSON with content, summary, tags, timestamp, source
-- **MCP protocol** — JSON-RPC 2.0 over stdin/stdout, 13 tools, 5 resources
+- **MCP protocol** — JSON-RPC 2.0 over stdin/stdout or HTTP/SSE, 19 tools, 5 resources
 - **Goal tracking** — full CRUD with status/progress/priority/labels/deadlines, auto-progress from Markdown subtasks
 - **Timeline** — event log with date range queries
 - **Fact extraction** — auto-extract structured facts from conversation via LLM
 - **Proactive suggestions** — LLM-powered next-action recommendations
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
-- **CLI client** — 10 subcommands with formatted output (json/table/summary)
+- **CLI client** — 11 subcommands with formatted output (json/table/summary)
 - **Multi-language suggest** — en/ru support for suggestion prompts, configurable via Telegram user language preference
 - **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--save-timeout`)
 - **OpenAI-compatible API support** — optional `--llm-api-key` flag for authentication with OpenAI, OpenRouter, Groq, etc.
 - **HTTP/SSE transport** — optional `--http` flag starts the server in HTTP mode with SSE (Server-Sent Events) and JSON-RPC message endpoint, enabling remote clients and multi-client access
+- **AsyncWriter** — non-blocking writes with background worker queue (1 worker, depth 64); memory_save/memory_extract return immediately while embedding generation runs async; critical for voice/Alexa low-latency paths
+- **Keyword search (memory_find)** — exact SQL LIKE search on both keys and values with Unicode case-insensitivity fallback for Russian; complements semantic embedding search
+- **Contextual deep-search (memory_dig)** — finds entries matching a query, builds scenes with time-window context (entries before/after each match), intersects with additional keywords for relevance ranking; designed for "образная память" (associative human memory)
 
 ## Target Audience
 

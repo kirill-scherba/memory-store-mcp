@@ -15,12 +15,14 @@
 │  │     MCP Server Loop     │   │        memory-cli (Go binary)    │            │
 │  │     (ServeStdio)        │   │                                  │            │
 │  │                         │   │  Launch → memory-store-mcp via   │            │
-│  │  13 tools:              │   │  stdin/stdout MCP connection     │            │
+│  │  19 tools:             │   │  stdin/stdout MCP connection     │            │
 │  │  • memory_save          │   │                                  │            │
-│  │  • memory_get           │   │  10 subcommands:                 │            │
+│  │  • memory_get           │   │  11 subcommands:                 │            │
 │  │  • memory_delete        │   │  • save / get / delete / search  │            │
 │  │  • memory_search        │   │  • list / context / extract      │            │
-│  │  • memory_list          │   │  • goals / timeline / suggest    │            │
+│  │  • memory_find          │   │  • goals / timeline / suggest    │            │
+│  │  • memory_dig           │   │  • find                         │            │
+│  │  • memory_list          │   │                                  │            │
 │  │  • memory_get_context   │   │                                  │            │
 │  │  • memory_extract       │   └──────────┬───────────────────────┘            │
 │  │  • memory_goal_create   │              │ (direct connection,                │
@@ -131,8 +133,8 @@ This mirror gives goals semantic search coverage through the existing `kv_embedd
 
 Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 
-1. **`initialize`** — handshake (server identifies as `memory-store-mcp` v1.0.0)
-2. **`tools/list`** — returns all 13 tool definitions
+1. **`initialize`** — handshake (server identifies as `memory-store-mcp` v1.1.0)
+2. **`tools/list`** — returns all 19 tool definitions
 3. **`resources/list`** — returns 5 resource definitions
 4. **`tools/call`** — executes the requested tool
 5. **`resources/read`** — reads the requested resource
@@ -221,6 +223,44 @@ Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 - **Parameters**: `context` (string, optional), `limit` (number, optional, default 5, max 10)
 - **Returns**: List of suggested next actions ranked by relevance
 
+### memory_find
+
+- **Purpose**: Exact keyword search across memories via SQL LIKE
+- **Parameters**: `keyword` (string, required), `limit` (number, optional, default 20, max 100)
+- **Returns**: JSON array of `{key, value, created_at}`
+- **Notes**: Case-insensitive for ASCII; has Unicode fallback (first-letter uppercasing) for Russian. Complements semantic `memory_search`.
+
+### memory_dig
+
+- **Purpose**: Contextual deep-search — finds entries matching query, builds scenes with time-window context before/after, and intersects with additional keywords for relevance ranking
+- **Parameters**: `query` (string, required), `keywords` (string[], optional), `window` (string, optional, default "2h"), `max` (number, optional, default 10, max 50)
+- **Returns**: Structured JSON with scenes array; each scene has `match`, `before[]`, `after[]`, `relevance`, and `keywords[]`
+- **Notes**: Designed for "образная память" — user recalls fragments, tool reconstructs full scenes. Relevance: base 50 + 25 per keyword hit (cap 100).
+
+### session_save
+
+- **Purpose**: Save current session state for a project (latest + timestamped snapshot)
+- **Parameters**: `project` (string, required), `data` (string, required — JSON blob)
+- **Returns**: Success message with session key
+
+### session_get
+
+- **Purpose**: Retrieve the latest saved session state for a project
+- **Parameters**: `project` (string, required)
+- **Returns**: Session data blob
+
+### session_list
+
+- **Purpose**: List session keys by prefix
+- **Parameters**: `prefix` (string, optional)
+- **Returns**: List of session keys (S3-style folder semantics)
+
+### session_compact
+
+- **Purpose**: Delete old timestamped session snapshots
+- **Parameters**: `max_age_hours` (number, optional, default 168)
+- **Returns**: Count of deleted entries
+
 ## MCP Resources
 
 Five dynamic MCP resources provide direct access to aggregated state:
@@ -240,7 +280,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 - **Architecture**:
   - Spawns memory-store-mcp as a child process
   - Connects via JSON-RPC 2.0 over stdin/stdout
-  - All 10 subcommands map 1:1 to MCP tools
+  - All 11 subcommands map 1:1 to MCP tools
 - **Features**:
   - Auto-discovery of memory-store-mcp binary (PATH, same directory, GOPATH/bin)
   - `proxyStderrWithThinking()` — elegant LLM streaming output with "Thinking..." indicator
@@ -261,6 +301,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 | `goals` | Create, list, update goals |
 | `timeline` | Query timeline events by date range |
 | `suggest` | Get proactive suggestions |
+| `find` | Keyword search via SQL LIKE |
 
 ## Telegram Bot (Optional)
 
@@ -404,6 +445,17 @@ To prevent `memory_save` from appearing to hang during slow Ollama embedding gen
 - Result text includes elapsed duration so callers can see how long the save took
 
 The timeout is a server-side guard. The underlying Ollama HTTP call still respects its own 30s client timeout, but the MCP client is no longer blocked indefinitely.
+
+## AsyncWriter (Non-blocking Writes)
+
+To minimise latency for voice/Alice interactions, memory_save and memory_extract can return immediately without waiting for embedding generation:
+
+- **EnableAsync(queueDepth, workers)** — called in `main.go` after `NewStorage`; initialises a background worker pool
+- **AsyncSave** — queues the write operation; key generation happens synchronously (cheap), only `SetWithEmbedding` is deferred
+- **Queue fallback**: if the queue is full (64 entries), falls back to synchronous write to avoid blocking indefinitely
+- **Shutdown**: `Storage.Close()` waits for all queued writes to complete (`Stop()` drains the channel and joins workers)
+- **Logging**: async workers log completion time and errors to stderr
+- **Usage**: `AsyncSave` is used by `ExtractAndSave` (auto-fact extraction); `SaveWithTimeout` is used by the `memory_save` handler (production path needs timeout safety)
 
 ## Similarity Search
 

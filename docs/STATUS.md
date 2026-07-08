@@ -2,7 +2,7 @@
 
 ## Current Version
 
-**v1.0.0** — 13 MCP tools, 5 MCP resources, optional Telegram bot, CLI client
+**v1.1.0** — 19 MCP tools, 5 MCP resources, optional Telegram bot, CLI client
 
 ## Phases
 
@@ -11,7 +11,7 @@
 - [x] MCP server framework with `mcp-go`
 - [x] Key-value storage backed by libSQL via keyvalembd
 - [x] Semantic search via Ollama embeddings (cosine similarity in Go)
-- [x] 13 MCP tools (save, get, delete, search, list, context, extract, goal CRUD, timeline, suggest)
+- [x] 19 MCP tools (save, get, delete, search, list, context, extract, goal CRUD, timeline, suggest, find, dig, session save/get/list/compact)
 - [x] 5 MCP resources (goals, awareness, context, insights, timeline)
 - [x] Graceful degradation when Ollama unavailable
 - [x] Goal tracking with auto-progress from Markdown subtasks
@@ -34,7 +34,7 @@
 
 ### Phase 3: CLI Client — ✅ Complete
 
-- [x] memory-cli binary with 10 subcommands
+- [x] memory-cli binary with 11 subcommands
 - [x] MCP client connection to memory-store-mcp via stdio
 - [x] Auto-discovery of server binary
 - [x] Formatted output (json/table/summary) via tabwriter
@@ -63,28 +63,20 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 - [ ] Task 4: Semantic e2e memory tests
 - [ ] Task 5: CI (Makefile) and docs
 
-## Recent Commits (2026-05)
+## Recent Commits (2026-07)
 
 | Date | Commit | Description |
 |------|--------|-------------|
+| 2026-07-08 | `c51e4f8` | feat: add memory_dig — contextual deep-search with scenes and time windows |
+| 2026-07-08 | `0554f4f` | fix test: update expected subcommand count to 11 (added 'find') |
+| 2026-07-08 | `e1c8c97` | Merge origin/main (PR #32 save timeout) into local changes |
+| 2026-07-08 | `e58fef2` | Add memory_find keyword search, async writes, enriched memory_search, and memory-cli find subcommand |
+| 2026-07-08 | `5d75fe9` | feat(deploy): add user-mode systemd service for HTTP MCP server |
+| 2026-07-08 | `1d86d1f` | feat: add deploy script for orchestrator auto-deploy |
+| 2026-07-08 | `ddcced0` | docs: add project image to README |
+| 2026-07-08 | `e6104db` | feat: auto-inject upcoming reminders into GetContextForInjection |
+| 2026-07-08 | `d7cc3d5` | Merge pull request #31 from kirill-scherba/feature/30 |
 | 2026-06-14 | *branch* | test: add comprehensive test coverage for storage, tools, extraction, CLI (#20) |
-| 2026-05-07 | `1f982c5` | fix: swap phi4-mini → qwen2.5-coder:7b, refactor brace JSON parsing |
-| 2026-05-07 | *uncommitted* | fix: add fallback key display, digest Summary→Content→Key chain, safe CreatedAt truncation, remove duplicate code in notebook.go |
-| 2026-05-06 | `11d8542` | Return raw key for Telegram notes |
-| 2026-05-06 | `e18bba6` | Add unit tests for helpers |
-| 2026-05-06 | `075fa9a` | Clarify Telegram access env |
-| 2026-05-05 | `7099bf6` | Add memory CLI sources (10 subcommands) |
-| 2026-05-05 | `5a471d9` | Update README for current options |
-| 2026-05-05 | `d5adbc7` | Fix telegram question title formatting |
-| 2026-05-05 | `c893e88` | refactor: remove all os.Getenv except TELEGRAM_ALLOWED_USERS |
-| 2026-05-04 | `91a5052` | refactor: replace --ollama-url with --llm-url, add setLLMURL with priority chain |
-| 2026-05-04 | `0206524` | Project docs updated |
-| 2026-05-04 | `94e013b` | Remove PLAN-002-telegram.md (plan completed) |
-| 2026-05-04 | `65118b1` | Add Telegram bot integration and multi-language suggest support |
-| 2026-05-03 | `693179d` | Fix JSON sanitisation in Suggest: order patterns correctly |
-| 2026-05-03 | `470dd64` | Implement goal TODO features |
-| 2026-05-03 | `efd62e0` | Project status updated |
-| 2026-05-03 | `6bc1f9c` | docs: update STATUS.md and DESIGN.md to reflect CLI client and Phase 1-2 completeness |
 
 ## Recently Removed
 
@@ -101,9 +93,9 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 | `main.go` | MCP server entry point, resource registration, Telegram bot launch |
 | `llm.go` | Ollama chat client for extraction and suggestions |
 | `llm_test.go` | Unit tests for chat model selection and sanitisation |
-| `storage.go` | Storage struct, Telegram wrapper methods, awareness resource helpers |
+| `storage.go` | Storage struct, Telegram wrapper methods, awareness resource helpers, Find, Dig |
 | `extraction.go` | LLM-based fact extraction from conversation |
-| `tools.go` | Tool definitions and registration (13 tools) |
+| `tools.go` | Tool definitions and registration (19 tools) |
 | `tools_context.go` | Context aggregation for memory_get_context tool |
 | `tools_extract.go` | Extraction tool handler |
 | `tools_goals.go` | Goal CRUD tools, goal mirror to kv_data, Telegram goal wrappers |
@@ -142,6 +134,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 | `timeline.go` | `memory timeline` subcommand |
 | `suggest.go` | `memory suggest` subcommand |
 | `format.go` | Output formatting: json/table/summary with tabwriter, truncate, proxyStderrWithThinking |
+| `find.go` | `memory find` subcommand — keyword search via SQL LIKE |
 
 ### `docs/` directory
 
@@ -161,16 +154,16 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 5. **BotFather commands** — bot commands are registered via API on every start; this is fine but could be made optional with a flag
 6. **```json fences** — qwen2.5-coder:7b wraps JSON in ```json in ~40% of responses; parseAgentResponse handles this via 5 fallback strategies
 7. **No `--debug` flag** — bot logs always go to both stderr and file; no verbosity levels
+8. **mcp-gateway tool caching** — gateway at port 7711 caches tool lists; restart required after adding new tools to memory-store-mcp
 
-## Recent Fixes (uncommitted)
+## Recent Fixes & Features
 
-- **Bug #3**: Empty titles in formatters — added `Key` fallback chain: `Summary → Content → Key` in all 6 formatters
-- **Bug #4**: Potential panic `slice bounds out of range` — added length check before `CreatedAt[:10]` in `extraction.go` and `main.go`
-- **Bug #5**: Digest skipped entries without Summary — changed to `Summary → Content → Key` fallback
-- **Bug #6**: Duplicate code block in `notebook.go` — removed 14-line identical block
-- **Bug #7**: `formatTimelineResults` showed empty lines — added content/key fallback + calendar emoji
-- **Issue #22**: `storage.go` dead code in `GetContext()` — removed useless `json.Unmarshal` of search key as `MemoryValue` (#27)
 - **Issue #18**: `memory_save` slow/hangs — added `--save-timeout` flag (default 60s), `SaveWithTimeout` goroutine-based deadline, exact-key reporting on timeout, timing logs for marshal + keyvalembd_set_with_embedding, and tests (#18)
+- **memory_find** (2026-07-08): keyword search via SQL LIKE on keys and values with Unicode case-insensitivity fallback for Russian. Complements semantic memory_search
+- **AsyncWriter** (2026-07-08): non-blocking background writes (1 worker, queue depth 64); memory_save/memory_extract return immediately while embedding generation runs async. Critical for voice/alice low-latency paths
+- **Enriched memory_search** (2026-07-08): server-side enrichment returns `{key, score, content}` instead of raw `{key, score, value: {content, summary}}`
+- **memory-cli find** (2026-07-08): new `memory-cli find <keyword>` subcommand
+- **memory_dig** (2026-07-08): contextual deep-search — finds entries matching query, builds scenes with time-window context before/after each match, intersects with additional keywords for relevance ranking. Designed for associative/"образная память" queries
 
 ## Next Steps (PLAN-002)
 
