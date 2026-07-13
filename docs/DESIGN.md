@@ -368,6 +368,28 @@ Uses `classifyMessage()` — a purely rule-based classifier (no LLM call) that d
 - **Separate from embedding model**: Chat model is never used as fallback for embeddings, and vice versa
 - **API**: Ollama `/api/chat` endpoint with structured JSON response format
 
+### Model Comparison Test Results (2026-07-13)
+
+Tested `qwen2.5-coder:7b` vs `phi4-mini` on identical inputs after warming both models in Ollama. Both models run on CPU (24 cores, no GPU). Results:
+
+| Scenario | qwen2.5-coder:7b | phi4-mini | Winner |
+|---|---|---|---|
+| **extract (short text)** | 21.0s | **16.2s** | phi4-mini (+23%) |
+| **extract (long text)** | 60.5s | 63.3s | ≈ tie |
+| **suggest** | 58.8s | **31.2s** | phi4-mini (+47%) |
+| **extraction quality** | ✅ 8 facts, all key points captured | ✅ 8 facts, all key points captured | tie |
+| **suggest quality** | ✅ 5 suggestions, relevant | ✅ 5 suggestions, relevant | tie |
+| **CPU load** | 24 cores × 100% | 24 cores × 100% | tie |
+| **RAM usage** | higher | **lower** | phi4-mini |
+| **Already loaded by RAG** | ❌ | **✅** (phi4-mini used by rag-mcp) | phi4-mini |
+
+**Decision**: Switched default from `qwen2.5-coder:7b` to `phi4-mini` (commit `278ac0b` → `5aae915`). `qwen2.5-coder:7b` remains available via `--extract-model` / `--chat-model` flags if regression is suspected.
+
+**Note**: phi4-mini is already loaded in Ollama by rag-mcp, so extraction/suggest calls don't pay the cold-start penalty. If quality regression is ever suspected, revert with:
+```
+memory-store-mcp --http 127.0.0.1:7708 --extract-model qwen2.5-coder:7b --chat-model qwen2.5-coder:7b
+```
+
 ### Telegram LLM Question Answering
 
 When a question is asked in Telegram and an LLM processor is available:

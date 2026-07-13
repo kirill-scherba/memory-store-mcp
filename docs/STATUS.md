@@ -159,6 +159,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 ## Recent Fixes & Features
 
 - **Issue #33 / PR #34** (2026-07-13): `memory_extract` async — added `AsyncExtractor` (1 worker, queue depth 64), dedicated no-timeout `extractClient`, `--extract-model` flag. `memory_extract(auto_save=true)` returns `{status: "accepted", job_id}` immediately; facts are saved in the background. `memory_extract(auto_save=false)` stays synchronous and returns the extracted facts directly. Eliminates double timeout (MCP gateway 30s + Ollama HTTP 120s) that caused data loss
+- **Model switch** (2026-07-13): default model changed from `qwen2.5-coder:7b` to `phi4-mini` after comparative testing. See [DESIGN.md](DESIGN.md) for full test results. `qwen2.5-coder:7b` remains available via `--extract-model` / `--chat-model` flags
 - **memory_find** (2026-07-08): keyword search via SQL LIKE on keys and values with Unicode case-insensitivity fallback for Russian. Complements semantic memory_search
 - **AsyncWriter** (2026-07-08): non-blocking background writes (1 worker, queue depth 64); memory_save returns immediately while embedding generation runs async. Critical for voice/alice low-latency paths
 - **Enriched memory_search** (2026-07-08): server-side enrichment returns `{key, score, content}` instead of raw `{key, score, value: {content, summary}}`

@@ -19,7 +19,7 @@ import (
 
 // Default LLM model and Ollama settings for extraction and suggestion.
 const (
-	defaultLLMModel = "qwen2.5-coder:7b"
+	defaultLLMModel = "phi4-mini"
 	ollamaBaseURL   = "http://localhost:11434"
 	generateTimeout = 120 * time.Second
 )
