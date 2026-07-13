@@ -444,7 +444,9 @@ To prevent `memory_save` from appearing to hang during slow Ollama embedding gen
   The `keyvalembd_set_with_embedding` duration includes the SQLite write, keyvalembd interaction, Ollama embedding request/retries, and embedding upsert combined because `keyvalembd` exposes them as a single operation
 - Result text includes elapsed duration so callers can see how long the save took
 
-The timeout is a server-side guard. The underlying Ollama HTTP call still respects its own 30s client timeout, but the MCP client is no longer blocked indefinitely.
+The timeout is a server-side guard. The underlying Ollama HTTP call still respects its own 120s client timeout (`generateTimeout` in `llm.go`), but the MCP client is no longer blocked indefinitely.
+
+> **Note (July 2026):** `memory_extract` has a double-timeout problem — MCP gateway (30s) + LLM internal (120s). Both will be eliminated by making `memory_extract` fully async (see goal `goal/2026-07-08/1783540135562734556`).
 
 ## AsyncWriter (Non-blocking Writes)
 
