@@ -37,7 +37,22 @@ Return ONLY a JSON array of fact objects, nothing else. Example:
 }
 
 // ExtractFacts uses the LLM to extract structured facts from conversation text.
+// Uses the synchronous chat client (ollamaClient, 120s timeout) and is kept
+// for backward compatibility and synchronous callers.
 func ExtractFacts(text string) ([]ExtractedFact, error) {
+	return extractFactsWithGenerator(text, generateAnswer)
+}
+
+// ExtractFactsAsync extracts facts using the background extraction model and
+// no-timeout client. Used by AsyncExtractor so that long-running extractions
+// are not cut off by the 120s ollamaClient timeout.
+func ExtractFactsAsync(text string) ([]ExtractedFact, error) {
+	return extractFactsWithGenerator(text, generateExtractAnswer)
+}
+
+// extractFactsWithGenerator performs the extraction using the provided
+// generator function.
+func extractFactsWithGenerator(text string, generateFn func([]OllamaChatMessage) (string, error)) ([]ExtractedFact, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
@@ -47,7 +62,7 @@ func ExtractFacts(text string) ([]ExtractedFact, error) {
 		{Role: "user", Content: text},
 	}
 
-	answer, err := generateAnswer(msg)
+	answer, err := generateFn(msg)
 	if err != nil {
 		return nil, fmt.Errorf("LLM extract failed: %w", err)
 	}
@@ -106,8 +121,8 @@ func SuggestPrompt(context string) string {
 // Auto-save from conversation
 // ---------------------------------------------------------------------------
 
-// ProcessConversation analyses a conversation exchange and saves extracted
-// facts automatically. It's called after each user message.
+// ProcessConversation analyses a conversation exchange and queues extraction
+// for automatic fact saving. It's called after each user message.
 func (s *Storage) ProcessConversation(userMessage, assistantMessage string) error {
 	combined := ""
 	if userMessage != "" {
@@ -121,15 +136,12 @@ func (s *Storage) ProcessConversation(userMessage, assistantMessage string) erro
 		return nil
 	}
 
-	keys, err := s.ExtractAndSave(combined)
+	jobID, err := s.SubmitExtract(combined, true)
 	if err != nil {
-		return fmt.Errorf("auto-save failed: %w", err)
+		return fmt.Errorf("auto-extract submit failed: %w", err)
 	}
 
-	if len(keys) > 0 {
-		log.Printf("📝 auto-saved %d facts from conversation", len(keys))
-	}
-
+	log.Printf("📝 submitted conversation for auto-extraction (job %s)", jobID)
 	return nil
 }
 

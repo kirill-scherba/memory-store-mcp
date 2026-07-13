@@ -158,8 +158,9 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 
 ## Recent Fixes & Features
 
-- **Issue #18**: `memory_save` slow/hangs — added `--save-timeout` flag (default 60s), `SaveWithTimeout` goroutine-based deadline, exact-key reporting on timeout, timing logs for marshal + keyvalembd_set_with_embedding, and tests (#18)
+- **Issue #33**: `memory_extract` async — added `AsyncExtractor` (1 worker, queue depth 64), dedicated no-timeout `extractClient`, `--extract-model` flag, fire-and-forget `memory_extract` handler returning `{status: "accepted", job_id}`. Eliminates double timeout (MCP gateway 30s + Ollama HTTP 120s) that caused data loss
 - **memory_find** (2026-07-08): keyword search via SQL LIKE on keys and values with Unicode case-insensitivity fallback for Russian. Complements semantic memory_search
+- **AsyncExtractor** (2026-07-13): background LLM fact extraction (1 worker, queue depth 64); memory_extract returns immediately while the LLM call runs asynchronously with no timeout, eliminating the double-timeout data loss bug (#33)
 - **AsyncWriter** (2026-07-08): non-blocking background writes (1 worker, queue depth 64); memory_save/memory_extract return immediately while embedding generation runs async. Critical for voice/alice low-latency paths
 - **Enriched memory_search** (2026-07-08): server-side enrichment returns `{key, score, content}` instead of raw `{key, score, value: {content, summary}}`
 - **memory-cli find** (2026-07-08): new `memory-cli find <keyword>` subcommand

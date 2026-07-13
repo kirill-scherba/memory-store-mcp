@@ -42,33 +42,25 @@ For MANUAL structured facts, prefer memory_save. Use memory_save after memory_ex
 
 			autoSave, _ := args["auto_save"].(bool)
 
-			if autoSave {
-				keys, err := s.ExtractAndSave(text)
-				if err != nil {
-					return mcp.NewToolResultText(fmt.Sprintf("Error extracting and saving: %v", err)), nil
-				}
-				if len(keys) == 0 {
-					return mcp.NewToolResultText("No facts extracted."), nil
-				}
-				result := fmt.Sprintf("Extracted and saved %d facts:\n", len(keys))
-				for _, k := range keys {
-					result += fmt.Sprintf("  - %s\n", k)
-				}
-				return mcp.NewToolResultText(result), nil
-			}
-
-			// Just extract without saving
-			facts, err := ExtractFacts(text)
+			// Submit extraction to the background worker and return immediately.
+			// This avoids the double timeout (MCP gateway 30s + Ollama HTTP 120s)
+			// that caused facts to be lost on long conversations.
+			jobID, err := s.SubmitExtract(text, autoSave)
 			if err != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("Error extracting facts: %v", err)), nil
+				return mcp.NewToolResultText(fmt.Sprintf("Error submitting extraction: %v", err)), nil
 			}
 
-			if len(facts) == 0 {
-				return mcp.NewToolResultText("No facts extracted from the text."), nil
+			result := map[string]any{
+				"status":  "accepted",
+				"job_id":  jobID,
+				"message": "Extraction queued. Facts will be saved automatically if auto_save is true.",
+			}
+			if !autoSave {
+				result["message"] = "Extraction queued. Use ExtractJobStatus or future memory_extract_status to check results."
 			}
 
-			data, _ := json.MarshalIndent(facts, "", "  ")
-			return mcp.NewToolResultText(fmt.Sprintf("Extracted %d facts:\n%s", len(facts), string(data))), nil
+			data, _ := json.MarshalIndent(result, "", "  ")
+			return mcp.NewToolResultText(string(data)), nil
 		},
 	}
 }
