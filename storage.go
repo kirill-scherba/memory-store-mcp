@@ -152,12 +152,14 @@ type Suggestion struct {
 // ---------------------------------------------------------------------------
 
 // Storage wraps KeyValueEmbd and adds goal tracking, timeline, proactive
-// features, and asynchronous writes.
+// features, and asynchronous writes / extractions.
 type Storage struct {
-	kv          *keyvalembd.KeyValueEmbd
-	goals       *sql.DB
-	dbPath      string
-	asyncWriter *AsyncWriter // non-blocking writes; nil = sync-only
+	kv             *keyvalembd.KeyValueEmbd
+	goals          *sql.DB
+	dbPath         string
+	asyncWriter    *AsyncWriter    // non-blocking writes; nil = sync-only
+	asyncExtractor *AsyncExtractor // background LLM extraction; nil = sync-only
+	extractFn      func(string) ([]ExtractedFact, error)
 }
 
 // NewStorage creates a new Storage, initialising both the KV store and the
@@ -194,7 +196,7 @@ func NewStorage(dbPath string) (*Storage, error) {
 	}
 
 	log.Printf("✅ storage ready at: %s", dbPath)
-	return &Storage{kv: kv, goals: goalsDB, dbPath: dbPath}, nil
+	return &Storage{kv: kv, goals: goalsDB, dbPath: dbPath, extractFn: ExtractFacts}, nil
 }
 
 // EnableAsync initialises the async writer with the given queue depth and
@@ -206,6 +208,15 @@ func (s *Storage) EnableAsync(queueDepth, workers int) {
 	s.asyncWriter = NewAsyncWriter(s, queueDepth, workers)
 }
 
+// EnableAsyncExtractor initialises the async extractor with the given queue
+// depth and 1 worker. Must be called after NewStorage.
+func (s *Storage) EnableAsyncExtractor(queueDepth int) {
+	if s.asyncExtractor != nil {
+		return
+	}
+	s.asyncExtractor = NewAsyncExtractor(s, queueDepth)
+}
+
 // AsyncSave queues a save for asynchronous execution if the async writer is
 // enabled. Falls back to synchronous Save otherwise.
 func (s *Storage) AsyncSave(key string, value *MemoryValue, text string, autoGenKey bool) (string, error) {
@@ -215,9 +226,71 @@ func (s *Storage) AsyncSave(key string, value *MemoryValue, text string, autoGen
 	return s.Save(key, value, text, autoGenKey)
 }
 
-// Close releases all resources. Waits for any pending async writes if the
-// async writer is active.
+// SubmitExtract queues an extraction job if the async extractor is enabled.
+// Returns the job ID immediately. Falls back to synchronous extraction (and
+// optional saving) otherwise.
+func (s *Storage) SubmitExtract(text string, autoSave bool) (string, error) {
+	if s.asyncExtractor != nil {
+		return s.asyncExtractor.Submit(text, autoSave)
+	}
+	if autoSave {
+		keys, err := s.ExtractAndSave(text)
+		if err != nil {
+			return "", err
+		}
+		_ = keys
+		return "sync-direct", nil
+	}
+	// Synchronous extraction without saving — used when the async extractor is
+	// disabled and the caller wants to review facts before persisting them.
+	_, err := s.extractFn(text)
+	if err != nil {
+		return "", err
+	}
+	return "sync-direct", nil
+}
+
+// ExtractJobStatus returns the status of a previously submitted extraction
+// job. Returns an error if the job is not found or the extractor is disabled.
+func (s *Storage) ExtractJobStatus(jobID string) (ExtractJobStatus, error) {
+	if s.asyncExtractor == nil {
+		return ExtractJobStatus{}, fmt.Errorf("async extractor not enabled")
+	}
+	st, ok := s.asyncExtractor.JobStatus(jobID)
+	if !ok {
+		return ExtractJobStatus{}, fmt.Errorf("job %s not found", jobID)
+	}
+	return st, nil
+}
+
+// saveExtractedFacts saves a list of extracted facts to memory. Used by the
+// async extractor worker after the LLM has returned facts.
+func (s *Storage) saveExtractedFacts(facts []ExtractedFact) []string {
+	var savedKeys []string
+	for _, fact := range facts {
+		val := &MemoryValue{
+			Content:   fact.Content,
+			Summary:   fact.Summary,
+			Tags:      fact.Tags,
+			Source:    "auto-extract",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		}
+
+		key, err := s.AsyncSave("", val, fact.Content, true)
+		if err != nil {
+			log.Printf("⚠ auto-save failed for fact '%s': %v", fact.Summary, err)
+			continue
+		}
+		savedKeys = append(savedKeys, key)
+	}
+	return savedKeys
+}
+
+// Close releases all resources. Waits for any pending async operations.
 func (s *Storage) Close() {
+	if s.asyncExtractor != nil {
+		s.asyncExtractor.Stop()
+	}
 	if s.asyncWriter != nil {
 		s.asyncWriter.Stop()
 	}
@@ -1022,7 +1095,7 @@ func (s *Storage) GetTimeline(from, to string, limit int) ([]TimelineEntry, erro
 // ExtractAndSave analyses the given text using the LLM and saves extracted
 // facts automatically. Returns the list of saved memory keys.
 func (s *Storage) ExtractAndSave(text string) ([]string, error) {
-	facts, err := ExtractFacts(text)
+	facts, err := s.extractFn(text)
 	if err != nil {
 		return nil, fmt.Errorf("extract facts: %w", err)
 	}

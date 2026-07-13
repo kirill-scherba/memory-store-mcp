@@ -21,7 +21,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **MCP protocol** — JSON-RPC 2.0 over stdin/stdout or HTTP/SSE, 19 tools, 5 resources
 - **Goal tracking** — full CRUD with status/progress/priority/labels/deadlines, auto-progress from Markdown subtasks
 - **Timeline** — event log with date range queries
-- **Fact extraction** — auto-extract structured facts from conversation via LLM
+- **Fact extraction** — auto-extract structured facts from conversation via LLM; background AsyncExtractor prevents timeouts when auto_save is true
 - **Proactive suggestions** — LLM-powered next-action recommendations
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
 - **CLI client** — 11 subcommands with formatted output (json/table/summary)
@@ -29,7 +29,8 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--save-timeout`)
 - **OpenAI-compatible API support** — optional `--llm-api-key` flag for authentication with OpenAI, OpenRouter, Groq, etc.
 - **HTTP/SSE transport** — optional `--http` flag starts the server in HTTP mode with SSE (Server-Sent Events) and JSON-RPC message endpoint, enabling remote clients and multi-client access
-- **AsyncWriter** — non-blocking writes with background worker queue (1 worker, depth 64); memory_save/memory_extract return immediately while embedding generation runs async; critical for voice/Alexa low-latency paths
+- **AsyncWriter** — non-blocking writes with background worker queue (1 worker, depth 64); `memory_save` returns immediately while embedding generation runs async; critical for voice/Alexa low-latency paths
+- **AsyncExtractor** — background LLM fact extraction (1 worker, depth 64); `memory_extract(auto_save=true)` queues the LLM call and returns a job ID immediately, eliminating the MCP gateway + Ollama timeout data-loss bug
 - **Keyword search (memory_find)** — exact SQL LIKE search on both keys and values with Unicode case-insensitivity fallback for Russian; complements semantic embedding search
 - **Contextual deep-search (memory_dig)** — finds entries matching a query, builds scenes with time-window context (entries before/after each match), intersects with additional keywords for relevance ranking; designed for "образная память" (associative human memory)
 

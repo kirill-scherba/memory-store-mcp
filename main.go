@@ -41,6 +41,8 @@ func main() {
 		"Path to the database (default: ~/.config/memory-store-mcp/memory.db)")
 	chatModel := flag.String("chat-model", defaultLLMModel,
 		"LLM chat model for extraction/suggest")
+	extractModel := flag.String("extract-model", "",
+		"LLM model for fact extraction (default: same as --chat-model)")
 	llmURL := flag.String("llm-url", ollamaBaseURL,
 		"LLM API base URL (default: http://localhost:11434)")
 	llmAPIKey := flag.String("llm-api-key", "",
@@ -68,6 +70,9 @@ func main() {
 
 	// Set chat model
 	setChatModel(*chatModel)
+
+	// Set extraction model (defaults to chat model)
+	setExtractModel(*extractModel)
 
 	// Set save timeout (--save-timeout flag)
 	setSaveTimeout(*saveTimeout)
@@ -117,10 +122,18 @@ func main() {
 	// without waiting for embedding generation + SQLite write.
 	store.EnableAsync(64, 1)
 
+	// Enable background LLM extraction with 1 worker and queue depth 64.
+	// This makes memory_extract run the LLM call asynchronously, eliminating
+	// the double timeout problem on long conversations.
+	store.EnableAsyncExtractor(64)
+
 	log.Printf("🚀 Starting memory-store-mcp server")
 	log.Printf("   DB path:        %s", *dbPath)
 	log.Printf("   LLM URL:        %s", llmBaseURL())
 	log.Printf("   LLM chat model: %s", *chatModel)
+	if *extractModel != "" {
+		log.Printf("   Extract model:  %s", *extractModel)
+	}
 	log.Printf("   Save timeout:   %v", *saveTimeout)
 	if key != "" {
 		masked := key

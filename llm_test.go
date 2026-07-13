@@ -86,6 +86,32 @@ func TestChatModel(t *testing.T) {
 	chatModelOverride = ""
 }
 
+func TestExtractModel(t *testing.T) {
+	chatModelOverride = ""
+	extractModelOverride = ""
+
+	// Default falls back to chat model.
+	if got := extractModel(); got != defaultLLMModel {
+		t.Fatalf("extractModel() = %q, want %q", got, defaultLLMModel)
+	}
+
+	// Override extraction model independently of chat model.
+	setExtractModel("extract-only")
+	if got := extractModel(); got != "extract-only" {
+		t.Fatalf("extractModel() = %q, want extract-only", got)
+	}
+
+	// If chat model is also overridden, extraction override wins.
+	setChatModel("chat-only")
+	if got := extractModel(); got != "extract-only" {
+		t.Fatalf("extractModel() = %q, want extract-only", got)
+	}
+
+	// Reset for other tests
+	chatModelOverride = ""
+	extractModelOverride = ""
+}
+
 func TestLlmBaseURL(t *testing.T) {
 	llmURLOverride = ""
 	if got := llmBaseURL(); got != ollamaBaseURL {

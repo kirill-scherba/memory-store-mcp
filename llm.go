@@ -36,11 +36,26 @@ var ollamaClient = &http.Client{
 // chatModelOverride overrides the chat model (for extraction/suggest).
 var chatModelOverride string
 
+// extractModelOverride overrides the model used for fact extraction.
+var extractModelOverride string
+
 // llmURLOverride overrides the LLM API base URL when set via --llm-url flag.
 var llmURLOverride string
 
 // llmAPIKeyOverride overrides the LLM API key for OpenAI-compatible APIs.
 var llmAPIKeyOverride string
+
+// extractClient is a dedicated HTTP client for background fact extraction.
+// Unlike ollamaClient (which has a 120s timeout), this client has no timeout,
+// because extraction runs in a background goroutine where we don't want
+// artificial cutoffs.
+var extractClient = &http.Client{
+	Timeout: 0,
+	Transport: &http.Transport{
+		MaxIdleConns:    5,
+		IdleConnTimeout: 90 * time.Second,
+	},
+}
 
 // setLLMURL sets the LLM base URL override.
 func setLLMURL(u string) {
@@ -54,6 +69,21 @@ func setChatModel(m string) {
 	if m != "" {
 		chatModelOverride = m
 	}
+}
+
+// setExtractModel sets the extraction model override.
+func setExtractModel(m string) {
+	if m != "" {
+		extractModelOverride = m
+	}
+}
+
+// extractModel returns the effective extraction model to use.
+func extractModel() string {
+	if m := extractModelOverride; m != "" {
+		return m
+	}
+	return chatModel()
 }
 
 // setLLMAPIKey sets the LLM API key override for OpenAI-compatible APIs.
@@ -158,8 +188,8 @@ func parseLLMResponse(data []byte) (string, error) {
 	return "", fmt.Errorf("failed to parse LLM response (body: %s)", string(data))
 }
 
-// chatModel returns the effective chat model to use, selecting from
-// override -> default.
+// chatModel returns the effective chat model to use for suggestion and
+// chat-like interactions, selecting from override -> default.
 func chatModel() string {
 	if m := chatModelOverride; m != "" {
 		return m
@@ -211,14 +241,28 @@ type LLMChatRequestOpenAI struct {
 }
 
 // generateAnswer sends a non-streaming chat request to Ollama and returns
-// the generated answer.
+// the generated answer. Uses ollamaClient (120s timeout) suitable for sync
+// callers like memory_suggest and Telegram /ask.
 func generateAnswer(messages []OllamaChatMessage) (string, error) {
+	return generateAnswerWithClient(ollamaClient, chatModel(), messages)
+}
+
+// generateExtractAnswer sends a non-streaming chat request using the
+// extraction model and the dedicated no-timeout client. Used by background
+// extraction workers.
+func generateExtractAnswer(messages []OllamaChatMessage) (string, error) {
+	return generateAnswerWithClient(extractClient, extractModel(), messages)
+}
+
+// generateAnswerWithClient sends a non-streaming chat request using the
+// provided HTTP client and model, and returns the generated answer.
+func generateAnswerWithClient(client *http.Client, model string, messages []OllamaChatMessage) (string, error) {
 	baseURL := llmBaseURL()
 	endpoint := llmEndpoint()
 
 	// Non-streaming request
 	reqBody := LLMChatRequest{
-		Model:    chatModel(),
+		Model:    model,
 		Messages: messages,
 		Stream:   boolPtr(false),
 	}
@@ -237,7 +281,7 @@ func generateAnswer(messages []OllamaChatMessage) (string, error) {
 		req.Header.Set("Authorization", "Bearer "+llmAPIKeyOverride)
 	}
 
-	resp, err := ollamaClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("Ollama chat request failed: %w", err)
 	}

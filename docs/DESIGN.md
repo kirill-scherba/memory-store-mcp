@@ -450,7 +450,7 @@ The timeout is a server-side guard. The underlying Ollama HTTP call still respec
 
 ## AsyncWriter (Non-blocking Writes)
 
-To minimise latency for voice/Alice interactions, memory_save and memory_extract can return immediately without waiting for embedding generation:
+To minimise latency for voice/Alice interactions, `memory_save` can return immediately without waiting for embedding generation:
 
 - **EnableAsync(queueDepth, workers)** — called in `main.go` after `NewStorage`; initialises a background worker pool
 - **AsyncSave** — queues the write operation; key generation happens synchronously (cheap), only `SetWithEmbedding` is deferred
@@ -458,6 +458,20 @@ To minimise latency for voice/Alice interactions, memory_save and memory_extract
 - **Shutdown**: `Storage.Close()` waits for all queued writes to complete (`Stop()` drains the channel and joins workers)
 - **Logging**: async workers log completion time and errors to stderr
 - **Usage**: `AsyncSave` is used by `ExtractAndSave` (auto-fact extraction); `SaveWithTimeout` is used by the `memory_save` handler (production path needs timeout safety)
+
+## AsyncExtractor (Background Fact Extraction)
+
+`memory_extract` can spend 10-120 seconds inside the LLM, which exceeds both the MCP gateway HTTP timeout (30 s) and the Ollama client timeout (120 s). `AsyncExtractor` decouples the LLM call from the MCP response so facts are not lost:
+
+- **EnableAsyncExtractor(queueDepth)** — called in `main.go` after `NewStorage`; starts 1 worker (more would saturate the CPU with a 7B coder model)
+- **Submit(text, autoSave)** — queues an extraction job and returns a `job_id` immediately; never blocks the caller
+- **Worker** — calls `ExtractFactsAsync` (dedicated Ollama client with no timeout), then, if `autoSave=true`, saves extracted facts through `AsyncSave`
+- **Job status** — tracked via `ExtractJobStatus(jobID)`; lifecycle is `pending` → `running` → `done` or `failed`
+- **Shutdown safety** — `Submit` holds a read lock while checking `stopped` and sending to the queue; `Stop` takes a write lock before closing the channel. This prevents the send-on-closed-channel race between `Submit` and `Stop`
+- **Drain behavior** — `Stop()` closes the queue and waits for the worker to finish the current job and drain all pending jobs from the queue
+- **Fallback** — if the extractor is stopped, the queue is full, or the extractor is disabled, `SubmitExtract` falls back to synchronous `ExtractAndSave`
+- **`auto_save=false`** — `memory_extract` runs synchronously and returns the extracted facts directly, preserving the documented manual workflow where the caller decides whether to call `memory_save`
+- **`auto_save=true`** — `memory_extract` queues the job and returns `{status: "accepted", job_id}`; extracted facts are saved automatically when the worker completes
 
 ## Similarity Search
 
