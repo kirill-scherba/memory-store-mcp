@@ -21,7 +21,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **MCP protocol** — JSON-RPC 2.0 over stdin/stdout or HTTP/SSE, 19 tools, 5 resources
 - **Goal tracking** — full CRUD with status/progress/priority/labels/deadlines, auto-progress from Markdown subtasks
 - **Timeline** — event log with date range queries
-- **Fact extraction** — auto-extract structured facts from conversation via LLM
+- **Fact extraction** — auto-extract structured facts from conversation via LLM; background AsyncExtractor prevents timeouts when auto_save is true
 - **Proactive suggestions** — LLM-powered next-action recommendations
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
 - **CLI client** — 11 subcommands with formatted output (json/table/summary)

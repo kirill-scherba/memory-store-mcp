@@ -236,9 +236,7 @@ func (s *Storage) SubmitExtract(text string, autoSave bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(keys) == 0 {
-		return "sync-direct", nil
-	}
+	_ = keys
 	return "sync-direct", nil
 }
 

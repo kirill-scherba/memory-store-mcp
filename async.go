@@ -153,6 +153,7 @@ type ExtractJobStatus struct {
 	ID        string    `json:"id"`
 	Status    string    `json:"status"` // pending, running, done, failed
 	Keys      []string  `json:"keys,omitempty"`
+	Facts     []ExtractedFact `json:"facts,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -161,24 +162,27 @@ type ExtractJobStatus struct {
 // AsyncExtractor manages a single background worker that performs fact
 // extraction in the background.
 type AsyncExtractor struct {
-	queue   chan *ExtractRequest
-	storage *Storage
-	wg      sync.WaitGroup
-	stopped bool
-	mu      sync.Mutex
-	jobs    map[string]*ExtractJobStatus
+	queue     chan *ExtractRequest
+	storage   *Storage
+	wg        sync.WaitGroup
+	stopped   bool
+	stopMu    sync.RWMutex // guards stopped flag and channel close/send coordination
+	mu        sync.Mutex    // guards jobs map
+	jobs      map[string]*ExtractJobStatus
+	extractFn func(string) ([]ExtractedFact, error)
 }
 
 // NewAsyncExtractor creates an AsyncExtractor with 1 worker and the given
-// queue depth. Must call Stop() to drain the current job and shut down.
+// queue depth. Must call Stop() to drain jobs and shut down.
 func NewAsyncExtractor(s *Storage, queueDepth int) *AsyncExtractor {
 	if queueDepth <= 0 {
 		queueDepth = 64
 	}
 	ae := &AsyncExtractor{
-		queue:   make(chan *ExtractRequest, queueDepth),
-		storage: s,
-		jobs:    make(map[string]*ExtractJobStatus),
+		queue:     make(chan *ExtractRequest, queueDepth),
+		storage:   s,
+		jobs:      make(map[string]*ExtractJobStatus),
+		extractFn: ExtractFactsAsync,
 	}
 	ae.wg.Add(1)
 	go ae.worker()
@@ -201,33 +205,39 @@ func (ae *AsyncExtractor) Submit(text string, autoSave bool) (string, error) {
 	}
 	ae.mu.Unlock()
 
-	// Stopped extractors fall back to sync extraction.
+	// Hold the read lock while checking stopped and sending to the queue.
+	// Stop() uses a write lock, so it cannot close the channel between the
+	// check and the send; this prevents a send-on-closed-channel panic.
+	ae.stopMu.RLock()
 	if ae.stopped {
-		keys, err := ae.storage.ExtractAndSave(text)
-		if err != nil {
-			ae.updateJob(jobID, "failed", nil, err.Error())
-			return jobID, err
-		}
-		ae.updateJob(jobID, "done", keys, "")
-		return jobID, nil
+		ae.stopMu.RUnlock()
+		return ae.fallbackSyncExtract(jobID, text)
 	}
 
 	req := &ExtractRequest{Text: text, AutoSave: autoSave, JobID: jobID}
 
 	select {
 	case ae.queue <- req:
+		ae.stopMu.RUnlock()
 		return jobID, nil
 	default:
+		ae.stopMu.RUnlock()
 		// Queue full — fall back to sync extraction so we don't drop data.
 		log.Printf("⚠ [async-extractor] queue full, falling back to sync extraction")
-		keys, err := ae.storage.ExtractAndSave(text)
-		if err != nil {
-			ae.updateJob(jobID, "failed", nil, err.Error())
-			return jobID, err
-		}
-		ae.updateJob(jobID, "done", keys, "")
-		return jobID, nil
+		return ae.fallbackSyncExtract(jobID, text)
 	}
+}
+
+// fallbackSyncExtract performs synchronous extraction when the async queue
+// cannot accept the job. Updates the tracked job status and returns the job ID.
+func (ae *AsyncExtractor) fallbackSyncExtract(jobID, text string) (string, error) {
+	keys, err := ae.storage.ExtractAndSave(text)
+	if err != nil {
+		ae.updateJob(jobID, "failed", nil, nil, err.Error())
+		return jobID, err
+	}
+	ae.updateJob(jobID, "done", keys, nil, "")
+	return jobID, nil
 }
 
 // JobStatus returns a copy of the current status of a job, if it exists.
@@ -243,12 +253,13 @@ func (ae *AsyncExtractor) JobStatus(jobID string) (ExtractJobStatus, bool) {
 }
 
 // updateJob updates a tracked job status in a thread-safe way.
-func (ae *AsyncExtractor) updateJob(jobID, status string, keys []string, errMsg string) {
+func (ae *AsyncExtractor) updateJob(jobID, status string, keys []string, facts []ExtractedFact, errMsg string) {
 	ae.mu.Lock()
 	defer ae.mu.Unlock()
 	if st, ok := ae.jobs[jobID]; ok {
 		st.Status = status
 		st.Keys = keys
+		st.Facts = facts
 		st.Error = errMsg
 		st.UpdatedAt = time.Now().UTC()
 	}
@@ -258,16 +269,16 @@ func (ae *AsyncExtractor) updateJob(jobID, status string, keys []string, errMsg 
 func (ae *AsyncExtractor) worker() {
 	defer ae.wg.Done()
 	for req := range ae.queue {
-		ae.updateJob(req.JobID, "running", nil, "")
+		ae.updateJob(req.JobID, "running", nil, nil, "")
 		start := time.Now()
 
-		facts, err := ExtractFactsAsync(req.Text)
+		facts, err := ae.extractFn(req.Text)
 		elapsed := time.Since(start)
 
 		if err != nil {
 			log.Printf("⚠ [async-extractor] extraction failed (job %s, elapsed %v): %v",
 				req.JobID, elapsed, err)
-			ae.updateJob(req.JobID, "failed", nil, err.Error())
+			ae.updateJob(req.JobID, "failed", nil, nil, err.Error())
 			continue
 		}
 
@@ -278,13 +289,15 @@ func (ae *AsyncExtractor) worker() {
 
 		log.Printf("  [async-extractor] extracted %d facts (job %s, elapsed %v, saved %d)",
 			len(facts), req.JobID, elapsed, len(keys))
-		ae.updateJob(req.JobID, "done", keys, "")
+		ae.updateJob(req.JobID, "done", keys, facts, "")
 	}
 }
 
-// Stop gracefully shuts down the extractor. The current job is allowed to
-// finish; pending jobs in the queue are not executed.
+// Stop gracefully shuts down the extractor. The worker finishes the current
+// job and drains any pending jobs from the queue before returning.
 func (ae *AsyncExtractor) Stop() {
+	ae.stopMu.Lock()
+	defer ae.stopMu.Unlock()
 	if ae.stopped {
 		return
 	}
