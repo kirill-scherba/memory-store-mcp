@@ -159,6 +159,7 @@ type Storage struct {
 	dbPath         string
 	asyncWriter    *AsyncWriter    // non-blocking writes; nil = sync-only
 	asyncExtractor *AsyncExtractor // background LLM extraction; nil = sync-only
+	extractFn      func(string) ([]ExtractedFact, error)
 }
 
 // NewStorage creates a new Storage, initialising both the KV store and the
@@ -195,7 +196,7 @@ func NewStorage(dbPath string) (*Storage, error) {
 	}
 
 	log.Printf("✅ storage ready at: %s", dbPath)
-	return &Storage{kv: kv, goals: goalsDB, dbPath: dbPath}, nil
+	return &Storage{kv: kv, goals: goalsDB, dbPath: dbPath, extractFn: ExtractFacts}, nil
 }
 
 // EnableAsync initialises the async writer with the given queue depth and
@@ -226,17 +227,26 @@ func (s *Storage) AsyncSave(key string, value *MemoryValue, text string, autoGen
 }
 
 // SubmitExtract queues an extraction job if the async extractor is enabled.
-// Returns the job ID immediately. Falls back to synchronous ExtractAndSave
-// otherwise.
+// Returns the job ID immediately. Falls back to synchronous extraction (and
+// optional saving) otherwise.
 func (s *Storage) SubmitExtract(text string, autoSave bool) (string, error) {
 	if s.asyncExtractor != nil {
 		return s.asyncExtractor.Submit(text, autoSave)
 	}
-	keys, err := s.ExtractAndSave(text)
+	if autoSave {
+		keys, err := s.ExtractAndSave(text)
+		if err != nil {
+			return "", err
+		}
+		_ = keys
+		return "sync-direct", nil
+	}
+	// Synchronous extraction without saving — used when the async extractor is
+	// disabled and the caller wants to review facts before persisting them.
+	_, err := s.extractFn(text)
 	if err != nil {
 		return "", err
 	}
-	_ = keys
 	return "sync-direct", nil
 }
 
@@ -1085,7 +1095,7 @@ func (s *Storage) GetTimeline(from, to string, limit int) ([]TimelineEntry, erro
 // ExtractAndSave analyses the given text using the LLM and saves extracted
 // facts automatically. Returns the list of saved memory keys.
 func (s *Storage) ExtractAndSave(text string) ([]string, error) {
-	facts, err := ExtractFacts(text)
+	facts, err := s.extractFn(text)
 	if err != nil {
 		return nil, fmt.Errorf("extract facts: %w", err)
 	}

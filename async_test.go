@@ -181,6 +181,7 @@ func TestAsyncExtractorStoppedSubmit(t *testing.T) {
 
 	ae := NewAsyncExtractor(store, 16)
 	ae.extractFn = stubExtractFn
+	store.extractFn = stubExtractFn
 	ae.Stop()
 
 	// After Stop, Submit should fall back to synchronous extraction.
@@ -196,8 +197,11 @@ func TestAsyncExtractorStoppedSubmit(t *testing.T) {
 	if !ok {
 		t.Fatalf("JobStatus(%q) not found after fallback", jobID)
 	}
-	if st.Status != "done" && st.Status != "failed" {
-		t.Fatalf("JobStatus().Status = %q, want done or failed", st.Status)
+	if st.Status != "done" {
+		t.Fatalf("JobStatus().Status = %q, want done", st.Status)
+	}
+	if len(st.Facts) != 1 {
+		t.Fatalf("JobStatus().Facts = %d, want 1", len(st.Facts))
 	}
 }
 
@@ -250,6 +254,7 @@ func TestStorageEnableAsyncExtractor(t *testing.T) {
 func TestStorageSubmitExtractDisabled(t *testing.T) {
 	store, _ := NewStorage(t.TempDir() + "/memory.db")
 	defer store.Close()
+	store.extractFn = stubExtractFn
 
 	jobID, err := store.SubmitExtract("disabled", false)
 	if err != nil {

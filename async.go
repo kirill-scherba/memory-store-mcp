@@ -211,7 +211,7 @@ func (ae *AsyncExtractor) Submit(text string, autoSave bool) (string, error) {
 	ae.stopMu.RLock()
 	if ae.stopped {
 		ae.stopMu.RUnlock()
-		return ae.fallbackSyncExtract(jobID, text)
+		return ae.fallbackSyncExtract(jobID, text, autoSave)
 	}
 
 	req := &ExtractRequest{Text: text, AutoSave: autoSave, JobID: jobID}
@@ -224,19 +224,26 @@ func (ae *AsyncExtractor) Submit(text string, autoSave bool) (string, error) {
 		ae.stopMu.RUnlock()
 		// Queue full — fall back to sync extraction so we don't drop data.
 		log.Printf("⚠ [async-extractor] queue full, falling back to sync extraction")
-		return ae.fallbackSyncExtract(jobID, text)
+		return ae.fallbackSyncExtract(jobID, text, autoSave)
 	}
 }
 
 // fallbackSyncExtract performs synchronous extraction when the async queue
 // cannot accept the job. Updates the tracked job status and returns the job ID.
-func (ae *AsyncExtractor) fallbackSyncExtract(jobID, text string) (string, error) {
-	keys, err := ae.storage.ExtractAndSave(text)
+// Mirrors the worker's extraction/save split so the autoSave flag is respected.
+func (ae *AsyncExtractor) fallbackSyncExtract(jobID, text string, autoSave bool) (string, error) {
+	facts, err := ae.extractFn(text)
 	if err != nil {
 		ae.updateJob(jobID, "failed", nil, nil, err.Error())
 		return jobID, err
 	}
-	ae.updateJob(jobID, "done", keys, nil, "")
+
+	var keys []string
+	if autoSave {
+		keys = ae.storage.saveExtractedFacts(facts)
+	}
+
+	ae.updateJob(jobID, "done", keys, facts, "")
 	return jobID, nil
 }
 

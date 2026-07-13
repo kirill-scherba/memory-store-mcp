@@ -60,7 +60,7 @@ echo '{
 | `memory_search` | Semantic search across memories | query (required), limit (optional) |
 | `memory_list` | List memories by prefix | prefix (required) |
 | `memory_get_context` | Get aggregated context for AI injection | query (required), limit (optional) |
-| `memory_extract` | Queue structured fact extraction from conversation text (returns `{status: "accepted", job_id}` immediately) | text (required), auto_save (optional) |
+| `memory_extract` | Extract structured facts from conversation text. With `auto_save=true` the extraction is queued and returns `{status: "accepted", job_id}` immediately; with `auto_save=false` (default) extraction runs synchronously and returns the facts directly. | text (required), auto_save (optional) |
 | `memory_goal_create` | Create a goal | title (required), description, priority, deadline, labels |
 | `memory_goal_list` | List goals by status and labels | status, labels |
 | `memory_goal_update` | Update a goal | id (required), title, description, status, deadline, priority, progress, labels |
