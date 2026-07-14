@@ -202,7 +202,12 @@ Session data is stored without embedding (exact-key lookup only).
 - session_save              — save current session state for a project
 - session_get               — retrieve latest session state
 - session_list              — list session keys by prefix
-- session_compact           — cleanup old session snapshots`
+- session_compact           — cleanup old session snapshots
+
+### 6. RAG Fallback
+If memory_search, memory_find, or memory_dig returns no relevant results,
+call **rag_query** or **rag_search** to check the RAG knowledge base
+(stored documents, memoirs, chapters). Do not go straight to filesystem tools.`
 
 	// Create MCP server
 	s := server.NewMCPServer(
