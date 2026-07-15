@@ -441,7 +441,7 @@ call **rag_query** or **rag_search** to check the RAG knowledge base
 		log.Printf("   HTTP endpoint:   %s/mcp", *httpAddr)
 
 		// Start the HTTP server in a goroutine
-		httpServer := server.NewStreamableHTTPServer(s)
+		httpServer := server.NewStreamableHTTPServer(s, server.WithStateLess(true))
 		go func() {
 			if err := httpServer.Start(*httpAddr); err != nil {
 				if err == http.ErrServerClosed {
