@@ -17,13 +17,13 @@
 │  │                         │   │  Launch → memory-store-mcp via   │            │
 │  │  19 tools:             │   │  stdin/stdout MCP connection     │            │
 │  │  • memory_save          │   │                                  │            │
-│  │  • memory_get             │  │  13 subcommands:                 │            │
-│  │  • memory_delete        │   │  • save / get / delete / search  │            │
-│  │  • memory_search        │   │  • list / context / extract      │            │
-│  │  • memory_find          │   │  • goals / timeline / suggest    │            │
-  │  │  • memory_dig           │   │  • find / dig / session         │            │
+  │  │  • memory_get           │   │  13 subcommands:                 │            │
+  │  │  • memory_delete        │   │  • save / get / delete / search  │            │
+  │  │  • memory_search        │   │  • list / context / extract      │            │
+  │  │  • memory_find          │   │  • goals / timeline / suggest    │            │
+  │  │  • memory_dig           │   │  • find / dig / session          │            │
   │  │  • memory_list          │   │                                  │            │
-│  │  • memory_get_context   │   │                                  │            │
+  │  │  • memory_get_context   │   │                                  │            │
 │  │  • memory_extract       │   └──────────┬───────────────────────┘            │
 │  │  • memory_goal_create   │              │ (direct connection,                │
 │  │  • memory_goal_list     │              │  no external deps)                 │
@@ -280,7 +280,8 @@ Five dynamic MCP resources provide direct access to aggregated state:
 - **Architecture**:
   - Spawns memory-store-mcp as a child process
   - Connects via JSON-RPC 2.0 over stdin/stdout
-  - All 11 subcommands map 1:1 to MCP tools
+  - 13 top-level subcommands cover memory, goal, timeline, suggestion, dig, and session workflows
+  - `session` groups the `session_save`, `session_get`, `session_list`, and `session_compact` MCP tools
 - **Features**:
   - Auto-discovery of memory-store-mcp binary (PATH, same directory, GOPATH/bin)
   - `proxyStderrWithThinking()` — elegant LLM streaming output with "Thinking..." indicator

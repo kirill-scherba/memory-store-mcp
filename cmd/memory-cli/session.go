@@ -94,7 +94,6 @@ Example:
 // newSessionGetCmd creates the 'session get' subcommand.
 func newSessionGetCmd() *cobra.Command {
 	var dbPath, chatModel, serverURL string
-	var output string
 
 	cmd := &cobra.Command{
 		Use:   "get <project>",
@@ -127,7 +126,6 @@ Example:
 	cmd.Flags().StringVar(&dbPath, "db", "", "Path to memory-store-mcp database")
 	cmd.Flags().StringVar(&chatModel, "chat-model", "", "Chat model")
 	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
-	cmd.Flags().StringVarP(&output, "output", "o", "json", "Output format: json (default)")
 
 	return cmd
 }
