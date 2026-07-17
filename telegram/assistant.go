@@ -41,6 +41,121 @@ func (b *Bot) cmdSearch(msg *tgbotapi.Message, lang string) {
 	b.sendText(msg.Chat.ID, reply)
 }
 
+// cmdFind handles /find <keyword> — exact keyword search.
+func (b *Bot) cmdFind(msg *tgbotapi.Message, lang string) {
+	keyword := strings.TrimSpace(msg.CommandArguments())
+	if keyword == "" {
+		b.sendText(msg.Chat.ID, t("find_usage", lang))
+		return
+	}
+
+	b.sendText(msg.Chat.ID, t("find_searching", lang))
+
+	jsonStr, err := b.funcs.Find(keyword, 20)
+	if err != nil {
+		log.Printf("⚠ Find error: %v", err)
+		b.sendText(msg.Chat.ID, fmt.Sprintf(t("find_error", lang), err))
+		return
+	}
+
+	var results []FindResult
+	if err := json.Unmarshal([]byte(jsonStr), &results); err != nil {
+		log.Printf("⚠ Error parsing find JSON: %v", err)
+		b.sendText(msg.Chat.ID, t("find_parse_error", lang))
+		return
+	}
+
+	reply := formatFindResults(results, lang)
+	b.sendText(msg.Chat.ID, reply)
+}
+
+// cmdDig handles /dig <query> [--keywords k1,k2] [--window 2h] [--max 10].
+func (b *Bot) cmdDig(msg *tgbotapi.Message, lang string) {
+	query, keywords, window, max := b.parseDigArgs(msg.CommandArguments())
+	if query == "" {
+		b.sendText(msg.Chat.ID, t("dig_usage", lang))
+		return
+	}
+
+	b.sendText(msg.Chat.ID, t("dig_searching", lang))
+
+	jsonStr, err := b.funcs.Dig(query, keywords, window, max)
+	if err != nil {
+		log.Printf("⚠ Dig error: %v", err)
+		b.sendText(msg.Chat.ID, fmt.Sprintf(t("dig_error", lang), err))
+		return
+	}
+
+	var result DigResult
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		log.Printf("⚠ Error parsing dig JSON: %v", err)
+		b.sendText(msg.Chat.ID, t("dig_parse_error", lang))
+		return
+	}
+
+	reply := formatDigResults(result, lang)
+	b.sendText(msg.Chat.ID, reply)
+}
+
+// parseDigArgs parses /dig arguments.
+// Supports: "query", "query --keywords a,b --window 1d --max 5".
+func (b *Bot) parseDigArgs(args string) (query string, keywords []string, window string, max int) {
+	window = "2h"
+	max = 10
+
+	parts := strings.Fields(args)
+	var queryParts []string
+	for i := 0; i < len(parts); i++ {
+		p := parts[i]
+		switch p {
+		case "--keywords":
+			if i+1 < len(parts) {
+				keywords = strings.Split(parts[i+1], ",")
+				for j := range keywords {
+					keywords[j] = strings.TrimSpace(keywords[j])
+				}
+				i++
+			}
+		case "--window":
+			if i+1 < len(parts) {
+				window = parts[i+1]
+				i++
+			}
+		case "--max":
+			if i+1 < len(parts) {
+				fmt.Sscanf(parts[i+1], "%d", &max)
+				i++
+			}
+		default:
+			queryParts = append(queryParts, p)
+		}
+	}
+	query = strings.Join(queryParts, " ")
+	return
+}
+
+// cmdList handles /list [prefix] — list memory keys by prefix.
+func (b *Bot) cmdList(msg *tgbotapi.Message, lang string) {
+	prefix := strings.TrimSpace(msg.CommandArguments())
+
+	jsonStr, err := b.funcs.List(prefix)
+	if err != nil {
+		log.Printf("⚠ List error: %v", err)
+		b.sendText(msg.Chat.ID, fmt.Sprintf(t("list_error", lang), err))
+		return
+	}
+
+	var keys []string
+	if err := json.Unmarshal([]byte(jsonStr), &keys); err != nil {
+		log.Printf("⚠ Error parsing list JSON: %v", err)
+		b.sendText(msg.Chat.ID, t("list_parse_error", lang))
+		return
+	}
+
+	reply := formatListResults(keys, lang)
+	b.sendText(msg.Chat.ID, reply)
+}
+
 // cmdGoals handles /goals — list active goals.
 func (b *Bot) cmdGoals(msg *tgbotapi.Message, lang string) {
 	jsonStr, err := b.funcs.ListGoals("active", nil)

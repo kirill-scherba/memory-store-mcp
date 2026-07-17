@@ -301,6 +301,56 @@ var i18n = i18nMap{
 		"en": "❌ Error processing memory.",
 	},
 
+	// ── Find command ───────────────────────────────────────
+	"find_usage": {
+		"ru": "ℹ️ Использование: /find <ключевое слово или фраза>",
+		"en": "ℹ️ Usage: /find <keyword or phrase>",
+	},
+	"find_searching": {
+		"ru": "🔍 Ищу точное совпадение...",
+		"en": "🔍 Searching exact match...",
+	},
+	"find_error": {
+		"ru": "❌ Ошибка: %v",
+		"en": "❌ Error: %v",
+	},
+	"find_parse_error": {
+		"ru": "❌ Ошибка при обработке результатов поиска.",
+		"en": "❌ Error processing search results.",
+	},
+
+	// ── Dig command ──────────────────────────────────────────
+	"dig_usage": {
+		"ru": "ℹ️ Использование: /dig <запрос> [--keywords k1,k2] [--window 2h] [--max 10]",
+		"en": "ℹ️ Usage: /dig <query> [--keywords k1,k2] [--window 2h] [--max 10]",
+	},
+	"dig_searching": {
+		"ru": "🕳 Копаю глубже...",
+		"en": "🕳 Digging deeper...",
+	},
+	"dig_error": {
+		"ru": "❌ Ошибка: %v",
+		"en": "❌ Error: %v",
+	},
+	"dig_parse_error": {
+		"ru": "❌ Ошибка при обработке сцен.",
+		"en": "❌ Error processing scenes.",
+	},
+
+	// ── List command ─────────────────────────────────────────
+	"list_usage": {
+		"ru": "ℹ️ Использование: /list [префикс]\nНапример: /list memory/project/",
+		"en": "ℹ️ Usage: /list [prefix]\nExample: /list memory/project/",
+	},
+	"list_error": {
+		"ru": "❌ Ошибка: %v",
+		"en": "❌ Error: %v",
+	},
+	"list_parse_error": {
+		"ru": "❌ Ошибка при обработке списка ключей.",
+		"en": "❌ Error processing key list.",
+	},
+
 	// ── Help ───────────────────────────────────────────────
 	"help_title": {
 		"ru": "<b>🧠 Memory Bot — Assistant</b>\n\nПросто напишите что-нибудь — бот сам поймёт, заметка это или цель.\n\n<b>Команды:</b>\n",
@@ -343,6 +393,18 @@ func commandDescriptions(lang string) []BotCommand {
 			"ru": "Просмотр записи по ключу",
 			"en": "View memory entry by key",
 		},
+		"find": {
+			"ru": "Поиск по точному ключевому слову",
+			"en": "Exact keyword search",
+		},
+		"dig": {
+			"ru": "Глубокий контекстный поиск (сцены)",
+			"en": "Deep contextual search (scenes)",
+		},
+		"list": {
+			"ru": "Список ключей по префиксу",
+			"en": "List memory keys by prefix",
+		},
 		"goals": {
 			"ru": "Список активных целей",
 			"en": "List active goals",
@@ -378,6 +440,9 @@ func commandDescriptions(lang string) []BotCommand {
 		{Command: "help", Description: desc["help"][lang]},
 		{Command: "search", Description: desc["search"][lang]},
 		{Command: "memory", Description: desc["memory"][lang]},
+		{Command: "find", Description: desc["find"][lang]},
+		{Command: "dig", Description: desc["dig"][lang]},
+		{Command: "list", Description: desc["list"][lang]},
 		{Command: "goals", Description: desc["goals"][lang]},
 		{Command: "goal", Description: desc["goal"][lang]},
 		{Command: "timeline", Description: desc["timeline"][lang]},

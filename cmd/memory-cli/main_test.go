@@ -13,8 +13,8 @@ func TestRootCommand(t *testing.T) {
 	if cmd.Use != "memory-cli" {
 		t.Fatalf("root command Use = %q, want memory-cli", cmd.Use)
 	}
-	if len(cmd.Commands()) != 11 {
-		t.Fatalf("root command has %d subcommands, want 11", len(cmd.Commands()))
+	if len(cmd.Commands()) != 13 {
+		t.Fatalf("root command has %d subcommands, want 13", len(cmd.Commands()))
 	}
 }
 
@@ -24,7 +24,7 @@ func TestSubcommands(t *testing.T) {
 	expected := []string{
 		"save", "get", "delete", "search", "list",
 		"context", "extract", "goals", "timeline", "suggest",
-		"find",
+		"find", "dig", "session",
 	}
 	names := make(map[string]bool)
 	for _, c := range cmd.Commands() {

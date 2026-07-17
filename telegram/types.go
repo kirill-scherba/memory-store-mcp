@@ -63,3 +63,44 @@ type ContextResult struct {
 	Memories []ContextMemoryItem `json:"memories,omitempty"`
 }
 
+// FindResult is a keyword search result entry.
+type FindResult struct {
+	Key       string `json:"key"`
+	Value     string `json:"value,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+// DigMatch is a single match found by Dig.
+type DigMatch struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at"`
+}
+
+// DigEntry is an entry in the context window around a match.
+type DigEntry struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Summary   string `json:"summary"`
+	CreatedAt string `json:"created_at"`
+	Delta     string `json:"delta"`
+}
+
+// DigScene is a single scene with its context window.
+type DigScene struct {
+	Match     DigMatch   `json:"match"`
+	Before    []DigEntry `json:"before"`
+	After     []DigEntry `json:"after"`
+	Relevance int        `json:"relevance"`
+	Keywords  []string   `json:"keywords,omitempty"`
+}
+
+// DigResult is the full result from a deep contextual search.
+type DigResult struct {
+	Query    string     `json:"query"`
+	Keywords []string   `json:"keywords,omitempty"`
+	Window   string     `json:"window"`
+	Scenes   []DigScene `json:"scenes"`
+	Total    int        `json:"total"`
+}
+

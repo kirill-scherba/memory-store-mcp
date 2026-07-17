@@ -24,7 +24,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Fact extraction** — auto-extract structured facts from conversation via LLM; background AsyncExtractor prevents timeouts when auto_save is true
 - **Proactive suggestions** — LLM-powered next-action recommendations
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
-- **CLI client** — 11 subcommands with formatted output (json/table/summary)
+- **CLI client** — 13 subcommands with formatted output (json/table/summary)
 - **Multi-language suggest** — en/ru support for suggestion prompts, configurable via Telegram user language preference
 - **Default model**: `phi4-mini` (switched from `qwen2.5-coder:7b` on 2026-07-13 after comparative testing — phi4-mini is faster on short texts, equal on long texts, already loaded by RAG, uses less RAM). `qwen2.5-coder:7b` available via `--extract-model` / `--chat-model` flags
 - **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--save-timeout`)
@@ -32,8 +32,9 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **HTTP/SSE transport** — optional `--http` flag starts the server in HTTP mode with SSE (Server-Sent Events) and JSON-RPC message endpoint, enabling remote clients and multi-client access
 - **AsyncWriter** — non-blocking writes with background worker queue (1 worker, depth 64); `memory_save` returns immediately while embedding generation runs async; critical for voice/Alexa low-latency paths
 - **AsyncExtractor** — background LLM fact extraction (1 worker, depth 64); `memory_extract(auto_save=true)` queues the LLM call and returns a job ID immediately, eliminating the MCP gateway + Ollama timeout data-loss bug
-- **Keyword search (memory_find)** — exact SQL LIKE search on both keys and values with Unicode case-insensitivity fallback for Russian; complements semantic embedding search
-- **Contextual deep-search (memory_dig)** — finds entries matching a query, builds scenes with time-window context (entries before/after each match), intersects with additional keywords for relevance ranking; designed for "образная память" (associative human memory)
+- **Keyword search (memory_find)** — exact SQL LIKE search on both keys and values with Unicode case-insensitivity fallback for Russian; complements semantic embedding search; available in MCP, CLI, and Telegram
+- **Contextual deep-search (memory_dig)** — finds entries matching a query, builds scenes with time-window context (entries before/after each match), intersects with additional keywords for relevance ranking; designed for "образная память" (associative human memory); available in MCP, CLI, and Telegram
+- **Session management** — save, get, list, and compact AI session state; available in MCP and CLI
 
 ## Target Audience
 

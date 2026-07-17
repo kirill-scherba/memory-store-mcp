@@ -52,6 +52,8 @@ Examples:
 	rootCmd.AddCommand(newTimelineCmd())
 	rootCmd.AddCommand(newSuggestCmd())
 	rootCmd.AddCommand(newFindCmd())
+	rootCmd.AddCommand(newDigCmd())
+	rootCmd.AddCommand(newSessionCmd())
 
 	return rootCmd
 }

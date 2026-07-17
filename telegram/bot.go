@@ -48,6 +48,12 @@ type BotFuncs struct {
 	DeleteMemory func(key string) error
 	// GetMemory retrieves a memory by key and returns its JSON string.
 	GetMemory func(key string) (string, error)
+	// Find performs keyword search across memories and returns JSON string.
+	Find func(keyword string, limit int) (string, error)
+	// Dig performs contextual deep-search across memories and returns JSON string.
+	Dig func(query string, keywords []string, window string, max int) (string, error)
+	// List lists memory keys by prefix and returns JSON string.
+	List func(prefix string) (string, error)
 	// LLMRequest sends messages to the LLM and returns the raw text response.
 	LLMRequest LLMRequester
 }
@@ -258,6 +264,12 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message) {
 		b.cmdSearch(msg, lang)
 	case "memory":
 		b.cmdMemory(msg, lang)
+	case "find":
+		b.cmdFind(msg, lang)
+	case "dig":
+		b.cmdDig(msg, lang)
+	case "list":
+		b.cmdList(msg, lang)
 	case "goals":
 		b.cmdGoals(msg, lang)
 	case "goal":

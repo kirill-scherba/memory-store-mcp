@@ -17,12 +17,12 @@
 │  │                         │   │  Launch → memory-store-mcp via   │            │
 │  │  19 tools:             │   │  stdin/stdout MCP connection     │            │
 │  │  • memory_save          │   │                                  │            │
-│  │  • memory_get           │   │  11 subcommands:                 │            │
+│  │  • memory_get             │  │  13 subcommands:                 │            │
 │  │  • memory_delete        │   │  • save / get / delete / search  │            │
 │  │  • memory_search        │   │  • list / context / extract      │            │
 │  │  • memory_find          │   │  • goals / timeline / suggest    │            │
-│  │  • memory_dig           │   │  • find                         │            │
-│  │  • memory_list          │   │                                  │            │
+  │  │  • memory_dig           │   │  • find / dig / session         │            │
+  │  │  • memory_list          │   │                                  │            │
 │  │  • memory_get_context   │   │                                  │            │
 │  │  • memory_extract       │   └──────────┬───────────────────────┘            │
 │  │  • memory_goal_create   │              │ (direct connection,                │
@@ -302,6 +302,8 @@ Five dynamic MCP resources provide direct access to aggregated state:
 | `timeline` | Query timeline events by date range |
 | `suggest` | Get proactive suggestions |
 | `find` | Keyword search via SQL LIKE |
+| `dig` | Deep contextual search with time-window scenes |
+| `session` | Manage AI session state (save/get/list/compact) |
 
 ## Telegram Bot (Optional)
 
@@ -329,6 +331,10 @@ Uses `classifyMessage()` — a purely rule-based classifier (no LLM call) that d
 | --- | --- |
 | `/start`, `/help` | Show welcome and help |
 | `/search <query>` | Semantic search across memory |
+| `/memory <key>` | View memory entry by key |
+| `/find <keyword>` | Exact keyword search |
+| `/dig <query> [--keywords ...]` | Deep contextual search with scenes |
+| `/list [prefix]` | List memory keys by prefix |
 | `/goals` | List active goals |
 | `/goal <id>` | Show goal details by ID |
 | `/timeline` | Recent events timeline |

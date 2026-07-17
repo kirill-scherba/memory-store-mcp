@@ -23,7 +23,7 @@
 ### Phase 2: Telegram Bot — ✅ Complete
 
 - [x] Telegram bot with notebook mode (auto-classify messages)
-- [x] Assistant mode (commands: /search, /goals, /goal, /timeline, /suggest, /context, /digest, /language)
+- [x] Assistant mode (commands: /search, /memory, /find, /dig, /list, /goals, /goal, /timeline, /suggest, /context, /digest, /language)
 - [x] Rule-based message classifier (no LLM call for classification)
 - [x] Access control via TELEGRAM_ALLOWED_USERS
 - [x] Multi-language support (ru/en)
@@ -34,7 +34,7 @@
 
 ### Phase 3: CLI Client — ✅ Complete
 
-- [x] memory-cli binary with 11 subcommands
+- [x] memory-cli binary with 13 subcommands
 - [x] MCP client connection to memory-store-mcp via stdio
 - [x] Auto-discovery of server binary
 - [x] Formatted output (json/table/summary) via tabwriter
