@@ -17,13 +17,13 @@
 │  │                         │   │  Launch → memory-store-mcp via   │            │
 │  │  19 tools:             │   │  stdin/stdout MCP connection     │            │
 │  │  • memory_save          │   │                                  │            │
-  │  │  • memory_get           │   │  13 subcommands:                 │            │
-  │  │  • memory_delete        │   │  • save / get / delete / search  │            │
-  │  │  • memory_search        │   │  • list / context / extract      │            │
-  │  │  • memory_find          │   │  • goals / timeline / suggest    │            │
-  │  │  • memory_dig           │   │  • find / dig / session          │            │
-  │  │  • memory_list          │   │                                  │            │
-  │  │  • memory_get_context   │   │                                  │            │
+│  │  • memory_get           │   │  13 subcommands:                 │            │
+│  │  • memory_delete        │   │  • save / get / delete / search  │            │
+│  │  • memory_search        │   │  • list / context / extract      │            │
+│  │  • memory_find          │   │  • goals / timeline / suggest    │            │
+│  │  • memory_dig           │   │  • find / dig / session          │            │
+│  │  • memory_list          │   │                                  │            │
+│  │  • memory_get_context   │   │                                  │            │
 │  │  • memory_extract       │   └──────────┬───────────────────────┘            │
 │  │  • memory_goal_create   │              │ (direct connection,                │
 │  │  • memory_goal_list     │              │  no external deps)                 │
