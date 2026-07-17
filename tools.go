@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kirill-scherba/keyvalembd"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -431,11 +432,16 @@ func memoryListTool(s *Storage) server.ServerTool {
 		mcp.WithDescription(`List memories by key prefix. S3-style folder semantics:
 - Keys ending with '/' are folders
 - Sub-folders collapsed into single entries
-- Use "" to list all top-level keys`),
+- Use "" to list all top-level keys
+- Optional from_date / to_date filters by created_at (ISO 8601, e.g. "2026-07-17T00:00:00Z")`),
 		mcp.WithString("prefix",
 			mcp.Description("Key prefix to filter by (e.g. 'memory/project/' or '' for all)"),
 			mcp.Required(),
 		),
+		mcp.WithString("from_date",
+			mcp.Description("Optional: only keys created at or after this time (ISO 8601)")),
+		mcp.WithString("to_date",
+			mcp.Description("Optional: only keys created at or before this time (ISO 8601)")),
 	)
 
 	return server.ServerTool{
@@ -444,7 +450,21 @@ func memoryListTool(s *Storage) server.ServerTool {
 			args := request.GetArguments()
 			prefix, _ := args["prefix"].(string)
 
-			keys, err := s.List(prefix)
+			var opts []keyvalembd.ListOption
+			if fd, ok := args["from_date"].(string); ok && fd != "" {
+				t, err := time.Parse(time.RFC3339, fd)
+				if err == nil {
+					opts = append(opts, keyvalembd.ListWithDateFrom(t))
+				}
+			}
+			if td, ok := args["to_date"].(string); ok && td != "" {
+				t, err := time.Parse(time.RFC3339, td)
+				if err == nil {
+					opts = append(opts, keyvalembd.ListWithDateTo(t))
+				}
+			}
+
+			keys, err := s.List(prefix, opts...)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error listing memories: %v", err)), nil
 			}

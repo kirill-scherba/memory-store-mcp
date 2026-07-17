@@ -439,9 +439,9 @@ func (s *Storage) Delete(key string) error {
 }
 
 // List returns all keys with the given prefix.
-func (s *Storage) List(prefix string) ([]string, error) {
+func (s *Storage) List(prefix string, opts ...keyvalembd.ListOption) ([]string, error) {
 	var keys []string
-	for key := range s.kv.List(prefix) {
+	for key := range s.kv.List(prefix, opts...) {
 		keys = append(keys, key)
 	}
 	return keys, nil
