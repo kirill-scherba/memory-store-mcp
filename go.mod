@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/kirill-scherba/keyvalembd v0.2.1
+	github.com/kirill-scherba/keyvalembd v0.3.0
 	github.com/kirill-scherba/sqlh v0.8.1
 	github.com/mark3labs/mcp-go v0.54.1
 	github.com/spf13/cobra v1.10.2
@@ -41,5 +41,3 @@ require (
 	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/kirill-scherba/keyvalembd => ../keyvalembd
