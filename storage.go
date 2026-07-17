@@ -1565,6 +1565,36 @@ func (s *Storage) GetContextFromTelegram(query string, limit int) (string, error
 	return string(data), nil
 }
 
+// FindFromTelegram performs keyword search across memories and returns JSON string.
+func (s *Storage) FindFromTelegram(keyword string, limit int) (string, error) {
+	results, err := s.Find(keyword, limit)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(results)
+	return string(data), nil
+}
+
+// DigFromTelegram performs contextual deep-search across memories and returns JSON string.
+func (s *Storage) DigFromTelegram(query string, keywords []string, window string, max int) (string, error) {
+	result, err := s.Dig(query, keywords, window, max)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(result)
+	return string(data), nil
+}
+
+// ListFromTelegram lists memory keys by prefix and returns JSON string.
+func (s *Storage) ListFromTelegram(prefix string) (string, error) {
+	keys, err := s.List(prefix)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(keys)
+	return string(data), nil
+}
+
 // LLMQuestionProcess answers a user question using provided memory context + LLM.
 // The context is pre-built by the caller (e.g. from GetContext) and passed here.
 func (s *Storage) LLMQuestionProcess(question string, contextStr string, lang string) (string, error) {

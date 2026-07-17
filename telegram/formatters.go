@@ -291,3 +291,137 @@ func formatContextResult(ctx ContextResult, lang string) string {
 	}
 	return reply
 }
+
+// formatFindResults formats keyword search results.
+func formatFindResults(results []FindResult, lang string) string {
+	if len(results) == 0 {
+		if lang == "ru" {
+			return "🔍 Ничего не найдено."
+		}
+		return "🔍 Nothing found."
+	}
+
+	var reply string
+	if lang == "ru" {
+		reply = fmt.Sprintf("🔍 <b>Результаты поиска (%d):</b>\n\n", len(results))
+	} else {
+		reply = fmt.Sprintf("🔍 <b>Search results (%d):</b>\n\n", len(results))
+	}
+	for i, r := range results {
+		var mv MemoryValue
+		title := ""
+		content := ""
+		if err := json.Unmarshal([]byte(r.Value), &mv); err == nil {
+			title = mv.Summary
+			if title == "" {
+				title = mv.Content
+			}
+			content = mv.Content
+			if content == "" {
+				content = mv.Summary
+			}
+			if title == content {
+				content = ""
+			}
+		}
+		if title == "" {
+			title = r.Key
+		}
+		reply += fmt.Sprintf("%d. <b>%s</b>\n", i+1, escapeHTML(title))
+		if content != "" {
+			reply += fmt.Sprintf("   %s\n", escapeHTML(truncateText(content, 200)))
+		}
+		reply += fmt.Sprintf("   🔑 <code>%s</code>\n\n", escapeHTML(r.Key))
+	}
+	if len(reply) > 4000 {
+		reply = reply[:4000] + "\n..."
+	}
+	return reply
+}
+
+// formatDigResults formats deep contextual search results.
+func formatDigResults(result DigResult, lang string) string {
+	if len(result.Scenes) == 0 {
+		if lang == "ru" {
+			return "🕳 Ничего не накопано."
+		}
+		return "🕳 Nothing dug up."
+	}
+
+	var reply string
+	if lang == "ru" {
+		reply = fmt.Sprintf("🕳 <b>Найдено %d сцен</b> по запросу \"%s\" (окно %s):\n\n",
+			result.Total, escapeHTML(result.Query), result.Window)
+	} else {
+		reply = fmt.Sprintf("🕳 <b>Found %d scenes</b> for query \"%s\" (window %s):\n\n",
+			result.Total, escapeHTML(result.Query), result.Window)
+	}
+
+	for i, scene := range result.Scenes {
+		keywords := ""
+		if len(scene.Keywords) > 0 {
+			if lang == "ru" {
+				keywords = fmt.Sprintf(" [ключевые слова: %s]", strings.Join(scene.Keywords, ", "))
+			} else {
+				keywords = fmt.Sprintf(" [keywords: %s]", strings.Join(scene.Keywords, ", "))
+			}
+		}
+		reply += fmt.Sprintf("<b>%d.</b> %s — %d%%%s\n",
+			i+1, escapeHTML(scene.Match.Key), scene.Relevance, keywords)
+		if scene.Match.Value != "" {
+			reply += fmt.Sprintf("   %s\n", escapeHTML(truncateText(scene.Match.Value, 150)))
+		}
+
+		if len(scene.Before) > 0 {
+			reply += "   <i>Before:</i>\n"
+			for _, e := range scene.Before {
+				reply += fmt.Sprintf("   %s %s: %s\n", e.Delta, escapeHTML(shortenKey(e.Key, 30)),
+					escapeHTML(truncateText(e.Value, 80)))
+			}
+		}
+		if len(scene.After) > 0 {
+			reply += "   <i>After:</i>\n"
+			for _, e := range scene.After {
+				reply += fmt.Sprintf("   %s %s: %s\n", e.Delta, escapeHTML(shortenKey(e.Key, 30)),
+					escapeHTML(truncateText(e.Value, 80)))
+			}
+		}
+		reply += "\n"
+	}
+	if len(reply) > 4000 {
+		reply = reply[:4000] + "\n..."
+	}
+	return reply
+}
+
+// formatListResults formats memory key list results.
+func formatListResults(keys []string, lang string) string {
+	if len(keys) == 0 {
+		if lang == "ru" {
+			return "📂 Нет ключей с таким префиксом."
+		}
+		return "📂 No keys for this prefix."
+	}
+
+	var reply string
+	if lang == "ru" {
+		reply = fmt.Sprintf("📂 <b>Ключи (%d):</b>\n\n", len(keys))
+	} else {
+		reply = fmt.Sprintf("📂 <b>Keys (%d):</b>\n\n", len(keys))
+	}
+	for _, k := range keys {
+		reply += fmt.Sprintf("• <code>%s</code>\n", escapeHTML(k))
+	}
+	if len(reply) > 4000 {
+		reply = reply[:4000] + "\n..."
+	}
+	return reply
+}
+
+// shortenKey truncates a key for display.
+func shortenKey(key string, maxLen int) string {
+	if len(key) <= maxLen {
+		return key
+	}
+	return key[:maxLen-3] + "..."
+}

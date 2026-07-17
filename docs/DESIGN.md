@@ -17,11 +17,11 @@
 │  │                         │   │  Launch → memory-store-mcp via   │            │
 │  │  19 tools:             │   │  stdin/stdout MCP connection     │            │
 │  │  • memory_save          │   │                                  │            │
-│  │  • memory_get           │   │  11 subcommands:                 │            │
+│  │  • memory_get           │   │  13 subcommands:                 │            │
 │  │  • memory_delete        │   │  • save / get / delete / search  │            │
 │  │  • memory_search        │   │  • list / context / extract      │            │
 │  │  • memory_find          │   │  • goals / timeline / suggest    │            │
-│  │  • memory_dig           │   │  • find                         │            │
+│  │  • memory_dig           │   │  • find / dig / session          │            │
 │  │  • memory_list          │   │                                  │            │
 │  │  • memory_get_context   │   │                                  │            │
 │  │  • memory_extract       │   └──────────┬───────────────────────┘            │
@@ -280,7 +280,8 @@ Five dynamic MCP resources provide direct access to aggregated state:
 - **Architecture**:
   - Spawns memory-store-mcp as a child process
   - Connects via JSON-RPC 2.0 over stdin/stdout
-  - All 11 subcommands map 1:1 to MCP tools
+  - 13 top-level subcommands cover memory, goal, timeline, suggestion, dig, and session workflows
+  - `session` groups the `session_save`, `session_get`, `session_list`, and `session_compact` MCP tools
 - **Features**:
   - Auto-discovery of memory-store-mcp binary (PATH, same directory, GOPATH/bin)
   - `proxyStderrWithThinking()` — elegant LLM streaming output with "Thinking..." indicator
@@ -302,6 +303,8 @@ Five dynamic MCP resources provide direct access to aggregated state:
 | `timeline` | Query timeline events by date range |
 | `suggest` | Get proactive suggestions |
 | `find` | Keyword search via SQL LIKE |
+| `dig` | Deep contextual search with time-window scenes |
+| `session` | Manage AI session state (save/get/list/compact) |
 
 ## Telegram Bot (Optional)
 
@@ -329,6 +332,10 @@ Uses `classifyMessage()` — a purely rule-based classifier (no LLM call) that d
 | --- | --- |
 | `/start`, `/help` | Show welcome and help |
 | `/search <query>` | Semantic search across memory |
+| `/memory <key>` | View memory entry by key |
+| `/find <keyword>` | Exact keyword search |
+| `/dig <query> [--keywords ...]` | Deep contextual search with scenes |
+| `/list [prefix]` | List memory keys by prefix |
 | `/goals` | List active goals |
 | `/goal <id>` | Show goal details by ID |
 | `/timeline` | Recent events timeline |

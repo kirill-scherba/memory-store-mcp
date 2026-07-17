@@ -523,6 +523,111 @@ func renderKeys(keys []string, format OutputFormat) string {
 }
 
 // ---------------------------------------------------------------------------
+// Dig output (deep contextual search scenes)
+// ---------------------------------------------------------------------------
+
+// digMatch represents the matched entry in a scene.
+type digMatch struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at"`
+}
+
+// digEntry represents an entry in the context window around a match.
+type digEntry struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Summary   string `json:"summary"`
+	CreatedAt string `json:"created_at"`
+	Delta     string `json:"delta"`
+}
+
+// digScene is a single scene with its context window.
+type digScene struct {
+	Match     digMatch   `json:"match"`
+	Before    []digEntry `json:"before"`
+	After     []digEntry `json:"after"`
+	Relevance int        `json:"relevance"`
+	Keywords  []string   `json:"keywords,omitempty"`
+}
+
+// digResult is the full result from memory_dig.
+type digResult struct {
+	Query    string     `json:"query"`
+	Keywords []string   `json:"keywords,omitempty"`
+	Window   string     `json:"window"`
+	Scenes   []digScene `json:"scenes"`
+	Total    int        `json:"total"`
+}
+
+func parseDigJSON(raw string) (*digResult, error) {
+	idx := strings.Index(raw, "\n")
+	if idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	var result digResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func formatDig(raw string, format OutputFormat) string {
+	result, err := parseDigJSON(raw)
+	if err != nil {
+		return raw
+	}
+	if len(result.Scenes) == 0 {
+		return fmt.Sprintf("No scenes found for query %q.", result.Query)
+	}
+
+	switch format {
+	case OutputTable:
+		return renderDigTable(result)
+	case OutputSummary:
+		return renderDigSummary(result)
+	default:
+		return raw
+	}
+}
+
+func renderDigTable(result *digResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Found %d scene(s) for %q (window %s):\n\n", result.Total, result.Query, result.Window)
+	for i, scene := range result.Scenes {
+		fmt.Fprintf(&b, "Scene %d — relevance %d%%", i+1, scene.Relevance)
+		if len(scene.Keywords) > 0 {
+			fmt.Fprintf(&b, " [keywords: %s]", strings.Join(scene.Keywords, ", "))
+		}
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "  Match: %s\n", scene.Match.Key)
+		if scene.Match.Value != "" {
+			fmt.Fprintf(&b, "  %s\n", truncate(scene.Match.Value, 120))
+		}
+		for _, e := range scene.Before {
+			fmt.Fprintf(&b, "  %s %s: %s\n", e.Delta, shortenID(e.Key, 40), truncate(e.Value, 80))
+		}
+		for _, e := range scene.After {
+			fmt.Fprintf(&b, "  %s %s: %s\n", e.Delta, shortenID(e.Key, 40), truncate(e.Value, 80))
+		}
+		fmt.Fprintln(&b)
+	}
+	return b.String()
+}
+
+func renderDigSummary(result *digResult) string {
+	var lines []string
+	for i, scene := range result.Scenes {
+		line := fmt.Sprintf("[%d/%d %d%%] %s", i+1, result.Total, scene.Relevance, scene.Match.Key)
+		if scene.Match.Value != "" {
+			line += " — " + truncate(scene.Match.Value, 80)
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// ---------------------------------------------------------------------------
 // Subtask extraction from description (mirrors storage.go logic)
 // ---------------------------------------------------------------------------
 

@@ -44,7 +44,7 @@ echo '{
 - **Goal tracking** — create, list, and update goals with progress and status
 - **Timeline** — view memory events over time periods
 - **Proactive suggestions** — analyze context + goals + history to suggest next actions
-- **CLI client** — `memory-cli` wraps the MCP server for shell usage
+- **CLI client** — `memory-cli` wraps the MCP server for shell usage (13 subcommands including `find`, `dig`, and `session`)
 - **Telegram bot** — optional notebook/assistant mode via `--telegram`
 - **MCP Resources** — dynamic resources auto-pulled by the assistant: current context, active goals, today's timeline, recent insights
 - **System instructions** — built-in instructions that tell the assistant to auto-save, auto-search, and suggest proactively
@@ -58,6 +58,8 @@ echo '{
 | `memory_get` | Retrieve a memory by key | key (required) |
 | `memory_delete` | Delete a memory by key | key (required) |
 | `memory_search` | Semantic search across memories | query (required), limit (optional) |
+| `memory_find` | Exact keyword search across keys and values | keyword (required), limit (optional) |
+| `memory_dig` | Deep contextual search with time-window scenes | query (required), keywords (optional), window (optional), max (optional) |
 | `memory_list` | List memories by prefix | prefix (required) |
 | `memory_get_context` | Get aggregated context for AI injection | query (required), limit (optional) |
 | `memory_extract` | Extract structured facts from conversation text. With `auto_save=true` the extraction is queued and returns `{status: "accepted", job_id}` immediately; with `auto_save=false` (default) extraction runs synchronously and returns the facts directly. | text (required), auto_save (optional) |
@@ -67,6 +69,10 @@ echo '{
 | `memory_goal_delete` | Delete a goal | id (required) |
 | `memory_timeline` | Get timeline events for a period | from, to, limit |
 | `memory_suggest` | Get proactive suggestions | context, limit |
+| `session_save` | Save AI session state for a project | project (required), data (required) |
+| `session_get` | Retrieve latest session state for a project | project (required) |
+| `session_list` | List session keys by prefix | prefix (optional) |
+| `session_compact` | Delete old timestamped session snapshots | max_age_hours (optional) |
 
 ## MCP Resources
 
@@ -183,6 +189,28 @@ echo '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"memory_tim
 
 ```bash
 echo '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"memory_search","arguments":{"query":"What architecture decisions were made?","limit":5}}}' | memory-store-mcp
+```
+
+### Keyword and contextual search
+
+```bash
+# Exact keyword search
+memory-cli find "deployment"
+
+# Deep contextual search with scenes
+memory-cli dig "architecture decisions" --keywords "aws,eks" --window "1d" --max 10
+```
+
+### Session management
+
+```bash
+# Save current session state
+memory-cli session save my-project '{"open_files":["main.go"],"task":"#35"}'
+
+# Retrieve and manage sessions
+memory-cli session get my-project
+memory-cli session list session/project/my-project/
+memory-cli session compact 168
 ```
 
 ### HTTP/SSE mode
