@@ -152,13 +152,17 @@ text (string) — long-form content for semantic search embeddings.
 
 // ─── memory_get ─────────────────────────────────────────────────────────────────
 
-// memoryGetTool retrieves a memory by its key.
+// memoryGetTool retrieves one or more memories by key(s).
+// Supports single key (existing) and batch keys (array) modes.
 func memoryGetTool(s *Storage) server.ServerTool {
 	opt := mcp.NewTool("memory_get",
-		mcp.WithDescription("Retrieve a memory by its key. Returns the stored JSON value."),
+		mcp.WithDescription("Retrieve one or more memories by key(s). Returns the stored JSON value(s). Supports single key (string) or batch keys (array)."),
 		mcp.WithString("key",
-			mcp.Description("Key of the memory to retrieve"),
-			mcp.Required(),
+			mcp.Description("Single key to retrieve (alternative to 'keys')"),
+		),
+		mcp.WithArray("keys",
+			mcp.Description("Array of keys to retrieve in batch"),
+			mcp.Items(map[string]any{"type": "string"}),
 		),
 	)
 
@@ -166,9 +170,33 @@ func memoryGetTool(s *Storage) server.ServerTool {
 		Tool: opt,
 		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := request.GetArguments()
+
+			// Batch mode: keys array
+			if keysRaw, ok := args["keys"]; ok {
+				keys, ok := keysRaw.([]any)
+				if ok && len(keys) > 0 {
+					var lines []string
+					for _, k := range keys {
+						keyStr, ok := k.(string)
+						if !ok || keyStr == "" {
+							continue
+						}
+						val, err := s.Get(keyStr)
+						if err != nil {
+							lines = append(lines, fmt.Sprintf("\x01%s\x01error: %v", keyStr, err))
+							continue
+						}
+						data, _ := json.Marshal(val)
+						lines = append(lines, fmt.Sprintf("\x01%s\x01%s", keyStr, string(data)))
+					}
+					return mcp.NewToolResultText(strings.Join(lines, "\n")), nil
+				}
+			}
+
+			// Single key mode (existing behavior)
 			key, _ := args["key"].(string)
 			if key == "" {
-				return mcp.NewToolResultText("Error: key is required"), nil
+				return mcp.NewToolResultText("Error: provide 'key' (string) or 'keys' (array)"), nil
 			}
 			val, err := s.Get(key)
 			if err != nil {
