@@ -90,7 +90,35 @@ func newGraphCmd() *cobra.Command {
 	addCmd.Flags().StringVar(&relation, "relation", "", "Relation type")
 	addCmd.Flags().StringVar(&date, "date", "", "Date (YYYY-MM-DD)")
 
+	// graph get-edges subcommand
+	getEdgesCmd := &cobra.Command{
+		Use:   "get-edges <entity>",
+		Short: "Get all raw edges for an entity",
+		Long:  `Returns all edges for an entity as structured JSON (from, to, relation, date). No Prolog inference.`,
+		Example: `  memory-cli graph get-edges Сварня`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := newMemoryClient("", "", serverURL)
+			if err != nil {
+				return fmt.Errorf("create client: %w", err)
+			}
+			defer client.close()
+
+			argsMap := map[string]any{
+				"entity": args[0],
+			}
+			result, err := client.callTool("graph_get_edges", argsMap)
+			if err != nil {
+				return fmt.Errorf("graph_get_edges call: %w", err)
+			}
+			fmt.Println(result)
+			return nil
+		},
+	}
+	getEdgesCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
+
 	cmd.AddCommand(queryCmd)
 	cmd.AddCommand(addCmd)
+	cmd.AddCommand(getEdgesCmd)
 	return cmd
 }
