@@ -77,6 +77,7 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: sessionCompactTool(s).Tool, Handler: logWrap("session_compact", s, sessionCompactTool(s).Handler)},
 		{Tool: memoryFindTool(s).Tool, Handler: logWrap("memory_find", s, memoryFindTool(s).Handler)},
 		{Tool: memoryDigTool(s).Tool, Handler: logWrap("memory_dig", s, memoryDigTool(s).Handler)},
+		{Tool: graphAddEdgeTool(s).Tool, Handler: logWrap("graph_add_edge", s, graphAddEdgeTool(s).Handler)},
 		{Tool: graphQueryTool(s).Tool, Handler: logWrap("graph_query", s, graphQueryTool(s).Handler)},
 	}
 }
@@ -653,6 +654,64 @@ Runs automatically on server startup. Can be called manually to reclaim space.`)
 // ─── graph_query ─────────────────────────────────────────────────────────
 
 // graphQueryTool finds all entities connected to the given entity in the
+// ─── graph_add_edge ──────────────────────────────────────────────────────
+
+// graphAddEdgeTool creates a new edge in the knowledge graph.
+func graphAddEdgeTool(s *Storage) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("graph_add_edge",
+			mcp.WithDescription("Add an edge to the knowledge graph. Creates a connection between two entities with a relation type."),
+			mcp.WithString("from",
+				mcp.Description("Source entity"),
+				mcp.Required(),
+			),
+			mcp.WithString("to",
+				mcp.Description("Target entity"),
+				mcp.Required(),
+			),
+			mcp.WithString("relation",
+				mcp.Description("Relation type (e.g. был_в, заказал, сгенерировал, породил_идею, иллюстрация)"),
+				mcp.Required(),
+			),
+			mcp.WithString("date",
+				mcp.Description("Date in YYYY-MM-DD format (default: today)"),
+			),
+		),
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			from, _ := args["from"].(string)
+			to, _ := args["to"].(string)
+			relation, _ := args["relation"].(string)
+			date, _ := args["date"].(string)
+
+			if from == "" || to == "" || relation == "" {
+				return mcp.NewToolResultText("Error: from, to, and relation are required"), nil
+			}
+			if date == "" {
+				date = time.Now().UTC().Format("2006-01-02")
+			}
+
+			key := fmt.Sprintf("memory/graph/%s-%s-%s", from, to, relation)
+			value := fmt.Sprintf(`{"from":"%s","to":"%s","relation":"%s","date":"%s"}`,
+				jsonEscape(from), jsonEscape(to), jsonEscape(relation), date)
+			text := fmt.Sprintf("graph: %s --[%s]--> %s", from, relation, to)
+
+			memVal := MemoryValue{
+				Content: value,
+			}
+			_, err := s.Save(key, &memVal, text, false)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error saving edge: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(fmt.Sprintf("Edge created: %s --[%s]--> %s", from, relation, to)), nil
+		},
+	}
+}
+
+// ─── graph_query ─────────────────────────────────────────────────────────
+
+// graphQueryTool finds all entities connected to the given entity in the
 // knowledge graph. Loads edges from memory, evaluates via prolog-mcp.
 func graphQueryTool(s *Storage) server.ServerTool {
 	return server.ServerTool{
@@ -784,4 +843,14 @@ func graphQueryTool(s *Storage) server.ServerTool {
 func prologAtom(s string) string {
 	escaped := strings.ReplaceAll(s, "'", "''")
 	return "'" + escaped + "'"
+}
+
+// jsonEscape escapes a string for safe embedding in a JSON value.
+func jsonEscape(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
+	s = strings.ReplaceAll(s, "\t", "\\t")
+	return s
 }

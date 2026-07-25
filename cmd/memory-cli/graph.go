@@ -12,24 +12,22 @@ import (
 
 func newGraphCmd() *cobra.Command {
 	var serverURL string
-	var depth, limit int
 
 	cmd := &cobra.Command{
-		Use:   "graph <entity>",
-		Short: "Query the knowledge graph for connections",
-		Long: `Query the knowledge graph. Finds all entities connected to the given entity
-via graph edges using Prolog inference through the prolog-mcp server.
+		Use:   "graph",
+		Short: "Knowledge graph operations",
+		Long:  `Query and manage the knowledge graph: find connections or add new edges.`,
+	}
 
-Examples:
-  memory-cli graph Сварня
-  memory-cli graph "Кирилл" --depth 3
-  memory-cli graph "img_1784222682.png" --limit 20
-`,
-
+	// graph query subcommand
+	var depth, limit int
+	queryCmd := &cobra.Command{
+		Use:   "query <entity>",
+		Short: "Query connections for an entity",
+		Example: `  memory-cli graph query Сварня
+  memory-cli graph query "Кирилл" --depth 3`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			entity := args[0]
-
 			client, err := newMemoryClient("", "", serverURL)
 			if err != nil {
 				return fmt.Errorf("create client: %w", err)
@@ -37,24 +35,62 @@ Examples:
 			defer client.close()
 
 			argsMap := map[string]any{
-				"entity": entity,
+				"entity": args[0],
 				"depth":  float64(depth),
 				"limit":  float64(limit),
 			}
-
 			result, err := client.callTool("graph_query", argsMap)
 			if err != nil {
 				return fmt.Errorf("graph_query call: %w", err)
 			}
-
 			fmt.Println(result)
 			return nil
 		},
 	}
+	queryCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
+	queryCmd.Flags().IntVar(&depth, "depth", 2, "Maximum traversal depth")
+	queryCmd.Flags().IntVar(&limit, "limit", 500, "Maximum number of edges")
 
-	cmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL (e.g. http://localhost:8080/mcp) for remote connection")
-	cmd.Flags().IntVar(&depth, "depth", 2, "Maximum traversal depth")
-	cmd.Flags().IntVar(&limit, "limit", 500, "Maximum number of edges to consider")
+	// graph add subcommand
+	var from, to, relation, date string
+	addCmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add an edge to the knowledge graph",
+		Example: `  memory-cli graph add --from Кирилл --to Сварня --relation был_в
+  memory-cli graph add --from Сварня --to плесковица --relation заказал --date 2026-07-23`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if from == "" || to == "" || relation == "" {
+				return fmt.Errorf("--from, --to, and --relation are required")
+			}
+			client, err := newMemoryClient("", "", serverURL)
+			if err != nil {
+				return fmt.Errorf("create client: %w", err)
+			}
+			defer client.close()
 
+			argsMap := map[string]any{
+				"from":     from,
+				"to":       to,
+				"relation": relation,
+			}
+			if date != "" {
+				argsMap["date"] = date
+			}
+			result, err := client.callTool("graph_add_edge", argsMap)
+			if err != nil {
+				return fmt.Errorf("graph_add_edge call: %w", err)
+			}
+			fmt.Println(result)
+			return nil
+		},
+	}
+	addCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
+	addCmd.Flags().StringVar(&from, "from", "", "Source entity")
+	addCmd.Flags().StringVar(&to, "to", "", "Target entity")
+	addCmd.Flags().StringVar(&relation, "relation", "", "Relation type")
+	addCmd.Flags().StringVar(&date, "date", "", "Date (YYYY-MM-DD)")
+
+	cmd.AddCommand(queryCmd)
+	cmd.AddCommand(addCmd)
 	return cmd
 }
