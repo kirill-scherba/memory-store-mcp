@@ -712,7 +712,7 @@ func graphQueryTool(s *Storage) server.ServerTool {
 				if !strings.Contains(edge.From, entity) && !strings.Contains(edge.To, entity) {
 					continue
 				}
-				fmt.Fprintf(&b, "edge(%q,%q,%q).\n", edge.From, edge.To, edge.Relation)
+				fmt.Fprintf(&b, "edge(%s,%s,%s).\n", prologAtom(edge.From), prologAtom(edge.To), prologAtom(edge.Relation))
 				count++
 				if count >= limit {
 					break
@@ -727,7 +727,7 @@ func graphQueryTool(s *Storage) server.ServerTool {
 			fmt.Fprintf(&b, "chain2(A,B,R1,R2):-edge(A,X,R1),edge(X,B,R2).\n")
 			fmt.Fprintf(&b, "related(A,B):-edge(A,B,_);edge(B,A,_).\n")
 			fmt.Fprintf(&b, "related(A,B):-edge(A,X,_),edge(X,B,_).\n")
-			fmt.Fprintf(&b, "?-related(%q,X).\n", entity)
+			fmt.Fprintf(&b, "?-related(%s,X).\n", prologAtom(entity))
 
 			// Call prolog-mcp via HTTP gateway
 			prologReq := map[string]any{
@@ -770,7 +770,18 @@ func graphQueryTool(s *Storage) server.ServerTool {
 			if pr.Result != nil && len(pr.Result.Content) > 0 {
 				prologResult = pr.Result.Content[0].Text
 			}
+			// Format: if JSON, convert Prolog lists to human-readable
+			prologResult = strings.ReplaceAll(prologResult, "[", "")
+			prologResult = strings.ReplaceAll(prologResult, "]", "")
+			prologResult = strings.ReplaceAll(prologResult, ", ", "")
 			return mcp.NewToolResultText(fmt.Sprintf("Entity: %s | Depth: %d | Edges: %d\n\n%s", entity, depth, count, prologResult)), nil
 		},
 	}
+}
+
+// prologAtom wraps a string in single quotes for use as a Prolog atom.
+// Single quotes inside the string are escaped by doubling them.
+func prologAtom(s string) string {
+	escaped := strings.ReplaceAll(s, "'", "''")
+	return "'" + escaped + "'"
 }
