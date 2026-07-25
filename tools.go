@@ -5,9 +5,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -74,6 +77,7 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: sessionCompactTool(s).Tool, Handler: logWrap("session_compact", s, sessionCompactTool(s).Handler)},
 		{Tool: memoryFindTool(s).Tool, Handler: logWrap("memory_find", s, memoryFindTool(s).Handler)},
 		{Tool: memoryDigTool(s).Tool, Handler: logWrap("memory_dig", s, memoryDigTool(s).Handler)},
+		{Tool: graphQueryTool(s).Tool, Handler: logWrap("graph_query", s, graphQueryTool(s).Handler)},
 	}
 }
 
@@ -642,6 +646,131 @@ Runs automatically on server startup. Can be called manually to reclaim space.`)
 			}
 
 			return mcp.NewToolResultText(fmt.Sprintf("Compacted sessions: %d old entries removed", deleted)), nil
+		},
+	}
+}
+
+// ─── graph_query ─────────────────────────────────────────────────────────
+
+// graphQueryTool finds all entities connected to the given entity in the
+// knowledge graph. Loads edges from memory, evaluates via prolog-mcp.
+func graphQueryTool(s *Storage) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("graph_query",
+			mcp.WithDescription("Query the knowledge graph. Finds all entities connected to the given entity via graph edges, using Prolog inference."),
+			mcp.WithString("entity",
+				mcp.Description("Entity to find connections for"),
+				mcp.Required(),
+			),
+			mcp.WithNumber("depth",
+				mcp.Description("Maximum traversal depth (default: 2)"),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Maximum number of edges to consider (default: 500)"),
+			),
+		),
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			entity, _ := args["entity"].(string)
+			if entity == "" {
+				return mcp.NewToolResultText("Error: entity is required"), nil
+			}
+			depth := 2
+			if v, ok := args["depth"].(float64); ok && v > 0 {
+				depth = int(v)
+			}
+			limit := 500
+			if v, ok := args["limit"].(float64); ok && v > 0 {
+				limit = int(v)
+			}
+
+			// List all graph edge keys
+			keys, err := s.List("memory/graph/")
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("List error: %v", err)), nil
+			}
+
+			// Build Prolog facts from matching edges
+			var b strings.Builder
+			var count int
+			for _, key := range keys {
+				if strings.HasSuffix(key, "/") {
+					continue // folder entry
+				}
+				mv, err := s.Get(key)
+				if err != nil {
+					continue
+				}
+				var edge struct {
+					From     string `json:"from"`
+					To       string `json:"to"`
+					Relation string `json:"relation"`
+				}
+				if err := json.Unmarshal([]byte(mv.Content), &edge); err != nil {
+					continue
+				}
+				if !strings.Contains(edge.From, entity) && !strings.Contains(edge.To, entity) {
+					continue
+				}
+				fmt.Fprintf(&b, "edge(%q,%q,%q).\n", edge.From, edge.To, edge.Relation)
+				count++
+				if count >= limit {
+					break
+				}
+			}
+			if b.Len() == 0 {
+				return mcp.NewToolResultText(fmt.Sprintf("No edges found for %q", entity)), nil
+			}
+
+			// Add rules and query
+			fmt.Fprintf(&b, "\ndirect(A,B,R):-edge(A,B,R).\n")
+			fmt.Fprintf(&b, "chain2(A,B,R1,R2):-edge(A,X,R1),edge(X,B,R2).\n")
+			fmt.Fprintf(&b, "related(A,B):-edge(A,B,_);edge(B,A,_).\n")
+			fmt.Fprintf(&b, "related(A,B):-edge(A,X,_),edge(X,B,_).\n")
+			fmt.Fprintf(&b, "?-related(%q,X).\n", entity)
+
+			// Call prolog-mcp via HTTP gateway
+			prologReq := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      time.Now().UnixMilli(),
+				"method":  "tools/call",
+				"params": map[string]any{
+					"name": "debug_query",
+					"arguments": map[string]any{
+						"code": b.String(),
+					},
+				},
+			}
+			reqBytes, _ := json.Marshal(prologReq)
+			resp, err := http.Post("http://localhost:7711/prolog-mcp", "application/json", bytes.NewReader(reqBytes))
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("prolog call error: %v", err)), nil
+			}
+			defer resp.Body.Close()
+			respBody, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != 200 {
+				return mcp.NewToolResultText(fmt.Sprintf("prolog status %d: %s", resp.StatusCode, string(respBody))), nil
+			}
+
+			var pr struct {
+				Result *struct {
+					Content []struct {
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"result"`
+				Error *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			json.Unmarshal(respBody, &pr)
+			if pr.Error != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("prolog error: %s", pr.Error.Message)), nil
+			}
+			prologResult := ""
+			if pr.Result != nil && len(pr.Result.Content) > 0 {
+				prologResult = pr.Result.Content[0].Text
+			}
+			return mcp.NewToolResultText(fmt.Sprintf("Entity: %s | Depth: %d | Edges: %d\n\n%s", entity, depth, count, prologResult)), nil
 		},
 	}
 }
