@@ -54,6 +54,7 @@ Examples:
 	rootCmd.AddCommand(newFindCmd())
 	rootCmd.AddCommand(newDigCmd())
 	rootCmd.AddCommand(newSessionCmd())
+	rootCmd.AddCommand(newGraphCmd())
 
 	return rootCmd
 }
