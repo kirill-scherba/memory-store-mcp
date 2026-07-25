@@ -77,6 +77,7 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: sessionCompactTool(s).Tool, Handler: logWrap("session_compact", s, sessionCompactTool(s).Handler)},
 		{Tool: memoryFindTool(s).Tool, Handler: logWrap("memory_find", s, memoryFindTool(s).Handler)},
 		{Tool: memoryDigTool(s).Tool, Handler: logWrap("memory_dig", s, memoryDigTool(s).Handler)},
+		{Tool: graphGetEdgesTool(s).Tool, Handler: logWrap("graph_get_edges", s, graphGetEdgesTool(s).Handler)},
 		{Tool: graphAddEdgeTool(s).Tool, Handler: logWrap("graph_add_edge", s, graphAddEdgeTool(s).Handler)},
 		{Tool: graphQueryTool(s).Tool, Handler: logWrap("graph_query", s, graphQueryTool(s).Handler)},
 	}
@@ -654,6 +655,66 @@ Runs automatically on server startup. Can be called manually to reclaim space.`)
 // ─── graph_query ─────────────────────────────────────────────────────────
 
 // graphQueryTool finds all entities connected to the given entity in the
+// ─── graph_get_edges ─────────────────────────────────────────────────────
+
+// graphGetEdgesTool returns all edges for an entity (direct, no Prolog).
+func graphGetEdgesTool(s *Storage) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("graph_get_edges",
+			mcp.WithDescription("Get all graph edges for an entity. Returns from, to, relation, and date without Prolog inference."),
+			mcp.WithString("entity",
+				mcp.Description("Entity to find edges for"),
+				mcp.Required(),
+			),
+		),
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			entity, _ := args["entity"].(string)
+			if entity == "" {
+				return mcp.NewToolResultText("Error: entity is required"), nil
+			}
+
+			keys, err := s.List("memory/graph/")
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("List error: %v", err)), nil
+			}
+
+			type Edge struct {
+				From     string `json:"from"`
+				To       string `json:"to"`
+				Relation string `json:"relation"`
+				Date     string `json:"date"`
+			}
+			var edges []Edge
+
+			for _, key := range keys {
+				if strings.HasSuffix(key, "/") {
+					continue
+				}
+				mv, err := s.Get(key)
+				if err != nil {
+					continue
+				}
+				var e Edge
+				if err := json.Unmarshal([]byte(mv.Content), &e); err != nil {
+					continue
+				}
+				if !strings.Contains(e.From, entity) && !strings.Contains(e.To, entity) {
+					continue
+				}
+				edges = append(edges, e)
+			}
+
+			if len(edges) == 0 {
+				return mcp.NewToolResultText(fmt.Sprintf("No edges found for %q", entity)), nil
+			}
+
+			data, _ := json.MarshalIndent(edges, "", "  ")
+			return mcp.NewToolResultText(fmt.Sprintf("Edges for %q: %d\n%s", entity, len(edges), string(data))), nil
+		},
+	}
+}
+
 // ─── graph_add_edge ──────────────────────────────────────────────────────
 
 // graphAddEdgeTool creates a new edge in the knowledge graph.
@@ -781,12 +842,14 @@ func graphQueryTool(s *Storage) server.ServerTool {
 				return mcp.NewToolResultText(fmt.Sprintf("No edges found for %q", entity)), nil
 			}
 
-			// Add rules and query
+			// Add rules and queries
 			fmt.Fprintf(&b, "\ndirect(A,B,R):-edge(A,B,R).\n")
 			fmt.Fprintf(&b, "chain2(A,B,R1,R2):-edge(A,X,R1),edge(X,B,R2).\n")
 			fmt.Fprintf(&b, "related(A,B):-edge(A,B,_);edge(B,A,_).\n")
 			fmt.Fprintf(&b, "related(A,B):-edge(A,X,_),edge(X,B,_).\n")
-			fmt.Fprintf(&b, "?-related(%s,X).\n", prologAtom(entity))
+			fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(A,B,R).\n")
+			fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(B,A,R).\n")
+			fmt.Fprintf(&b, "?-related_with_rel(%s,X,R).\n", prologAtom(entity))
 
 			// Call prolog-mcp via HTTP gateway
 			prologReq := map[string]any{
