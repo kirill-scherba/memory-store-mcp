@@ -691,7 +691,7 @@ func graphAddEdgeTool(s *Storage) server.ServerTool {
 				date = time.Now().UTC().Format("2006-01-02")
 			}
 
-			key := fmt.Sprintf("memory/graph/%s-%s-%s", from, to, relation)
+			key := fmt.Sprintf("memory/graph/%s-%s-%s-%s", date, from, to, relation)
 			value := fmt.Sprintf(`{"from":"%s","to":"%s","relation":"%s","date":"%s"}`,
 				jsonEscape(from), jsonEscape(to), jsonEscape(relation), date)
 			text := fmt.Sprintf("graph: %s --[%s]--> %s", from, relation, to)
