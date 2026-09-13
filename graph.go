@@ -501,10 +501,30 @@ func (s *Storage) extractImageEdges(imageName, text string, maxEdges int) (int, 
 }
 
 // galleryMetaEntry is the value stored under memory/gallery/meta/<file>.
+//
+// tags is inconsistent in the stored data: older entries hold a
+// comma-separated string, newer ones a JSON array. It is kept raw and
+// normalised by tagsText.
 type galleryMetaEntry struct {
-	Description string `json:"description"`
-	Tags        string `json:"tags"`
-	Prompt      string `json:"prompt"`
+	Description string          `json:"description"`
+	Tags        json.RawMessage `json:"tags"`
+	Prompt      string          `json:"prompt"`
+}
+
+// tagsText renders tags as plain text, accepting both stored shapes.
+func (m galleryMetaEntry) tagsText() string {
+	if len(m.Tags) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(m.Tags, &s); err == nil {
+		return s
+	}
+	var list []string
+	if err := json.Unmarshal(m.Tags, &list); err == nil {
+		return strings.Join(list, " ")
+	}
+	return ""
 }
 
 // backfillImageGraph links every gallery image to the entities mentioned in its
@@ -545,7 +565,7 @@ func (s *Storage) backfillImageGraph() (int, error) {
 			continue
 		}
 		imageName := strings.TrimPrefix(key, prefix)
-		text := meta.Description + " " + meta.Tags + " " + meta.Prompt
+		text := meta.Description + " " + meta.tagsText() + " " + meta.Prompt
 		n, err := s.extractImageEdges(imageName, text, 10)
 		if err != nil {
 			return total, fmt.Errorf("image %s: %w", imageName, err)
