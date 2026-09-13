@@ -26,6 +26,10 @@ The migration is idempotent and performs three steps:
   2. backfills it from the existing embedding column,
   3. creates the DiskANN vector index if missing.
 
+It is safe to re-run: the index is only built once, while the backfill step
+also repairs any rows written without the vector column (for example by an
+older server process), so they become visible to the index.
+
 Building the index can take a couple of minutes on large databases, so this is
 an explicit command rather than something done on server startup.
 
@@ -48,12 +52,7 @@ Examples:
 			}
 			defer kv.Close()
 
-			if kv.VectorIndexReady() {
-				fmt.Printf("vector index already present: %s\n", dbPath)
-				return nil
-			}
-
-			fmt.Printf("migrating %s (this may take a while)...\n", dbPath)
+			fmt.Printf("preparing vector index in %s...\n", dbPath)
 			if err := kv.MigrateVectorIndex(); err != nil {
 				return fmt.Errorf("migrate: %w", err)
 			}
