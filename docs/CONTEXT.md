@@ -24,7 +24,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Fact extraction** — auto-extract structured facts from conversation via LLM; background AsyncExtractor prevents timeouts when auto_save is true
 - **Proactive suggestions** — LLM-powered next-action recommendations
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
-- **CLI client** — 15 subcommands with formatted output (json/table/summary), including `migrate-vector-index` for the native vector index migration
+- **CLI client** — 16 subcommands with formatted output (json/table/summary), including `migrate-vector-index` (native vector index) and `compact` (drop legacy column + VACUUM)
 - **Multi-language suggest** — en/ru support for suggestion prompts, configurable via Telegram user language preference
 - **Default model**: `phi4-mini` (switched from `qwen2.5-coder:7b` on 2026-07-13 after comparative testing — phi4-mini is faster on short texts, equal on long texts, already loaded by RAG, uses less RAM). `qwen2.5-coder:7b` available via `--extract-model` / `--chat-model` flags
 - **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--save-timeout`)
@@ -35,6 +35,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Keyword search (memory_find)** — exact SQL LIKE search on both keys and values with Unicode case-insensitivity fallback for Russian; complements semantic embedding search; available in MCP, CLI, and Telegram
 - **Contextual deep-search (memory_dig)** — finds entries matching a query, builds scenes with time-window context (entries before/after each match), intersects with additional keywords for relevance ranking; designed for "образная память" (associative human memory); available in MCP, CLI, and Telegram
 - **Session management** — save, get, list, and compact AI session state; available in MCP and CLI
+- **Bounded timeline** — only meaningful events are logged (writes, extraction, sessions, graph edges, goals); read tools are excluded, and `PruneTimeline` drops non-allowlisted types plus events older than `--timeline-retention` (default 30 days)
 
 ## Target Audience
 

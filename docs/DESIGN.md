@@ -280,7 +280,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 - **Architecture**:
   - Spawns memory-store-mcp as a child process
   - Connects via JSON-RPC 2.0 over stdin/stdout
-  - 15 top-level subcommands cover memory, goal, timeline, suggestion, dig, session, graph, and vector index maintenance
+  - 16 top-level subcommands cover memory, goal, timeline, suggestion, dig, session, graph, and database maintenance
   - `session` groups the `session_save`, `session_get`, `session_list`, and `session_compact` MCP tools
 - **Features**:
   - Auto-discovery of memory-store-mcp binary (PATH, same directory, GOPATH/bin)
@@ -307,6 +307,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 | `session` | Manage AI session state (save/get/list/compact) |
 | `graph` | Knowledge graph operations (get edges, query) |
 | `migrate-vector-index` | Add and build the native libSQL vector index (idempotent; also repairs unindexed rows) |
+| `compact` | Drop the legacy embedding column and VACUUM the database |
 
 ## Telegram Bot (Optional)
 

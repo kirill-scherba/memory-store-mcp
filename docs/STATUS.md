@@ -67,6 +67,8 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 
 | Date | Commit | Description |
 |------|--------|-------------|
+| 2026-09-13 | `9ecea9f` | feat: bound the timeline log and add compact; bump keyvalembd v0.5.1 |
+| 2026-09-13 | `f5924b2` | fix(graph): case-insensitive entity matching |
 | 2026-09-13 | `0ff7a24` | fix(cli): make migrate-vector-index re-run as a repair |
 | 2026-09-13 | `0cb50b3` | feat(cli): add migrate-vector-index command; bump keyvalembd to v0.4.0 |
 | 2026-07-08 | `c51e4f8` | feat: add memory_dig — contextual deep-search with scenes and time windows |
@@ -159,6 +161,8 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 8. **mcp-gateway tool caching** — gateway at port 7711 caches tool lists; restart required after adding new tools to memory-store-mcp
 
 ## Recent Fixes & Features
+
+- **Timeline bounded + database compact** (2026-09-13): the timeline had grown to 2.7M rows / 327 MB, 95%+ of it read-access noise (2.6M `memory_get`). `logWrap` now uses an allowlist (writes, extraction, sessions, graph edges, goals), `PruneTimeline` drops non-allowlisted types and aged events (batched), and it runs in the background on startup and every 6h (`--timeline-retention`, default 30 days). New `memory-cli compact` drops the legacy `embedding` column and VACUUMs. keyvalembd bumped to v0.5.1: `embedding_vec` is now the single vector column (`DropLegacyEmbeddingColumn`, `Vacuum`). Production: timeline 2 758 618 → 1 825 rows, file 1437 MB → 1082 MB.
 
 - **Native vector index** (2026-09-13): bumped keyvalembd to v0.4.0 and added the `memory-cli migrate-vector-index` command. The production database (6845 vectors) was migrated: semantic search now uses libSQL's DiskANN index with exact re-ranking, measured at 22 ms per query versus 124 ms for the exact scan, recall@1/@5 100%, recall@10 ~98%. The command is idempotent and doubles as a repair that re-indexes rows written without the vector column. Small collections (rag-mcp, hub-server) stay on the exact scan.
 - **Issue #33 / PR #34** (2026-07-13): `memory_extract` async — added `AsyncExtractor` (1 worker, queue depth 64), dedicated no-timeout `extractClient`, `--extract-model` flag. `memory_extract(auto_save=true)` returns `{status: "accepted", job_id}` immediately; facts are saved in the background. `memory_extract(auto_save=false)` stays synchronous and returns the extracted facts directly. Eliminates double timeout (MCP gateway 30s + Ollama HTTP 120s) that caused data loss
