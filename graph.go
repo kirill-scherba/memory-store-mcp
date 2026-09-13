@@ -59,7 +59,7 @@ type GraphEdgeRow struct {
 	Relation   string  `db:"relation" json:"relation"`
 	Date       string  `db:"date" json:"date"`
 	Source     string  `db:"source" json:"source,omitempty"`
-	Confidence float64 `db:"confidence" json:"confidence,omitempty"`
+	Confidence float64 `db:"confidence" json:"-"`
 }
 
 // GraphNeighbor is an entity reachable from the queried one.
