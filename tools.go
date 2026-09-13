@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/kirill-scherba/keyvalembd"
+	"github.com/kirill-scherba/sqlh"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -672,16 +672,17 @@ Runs automatically on server startup. Can be called manually to reclaim space.`)
 	}
 }
 
-// ─── graph_query ─────────────────────────────────────────────────────────
+// ─── graph tools ─────────────────────────────────────────────────────────
+//
+// The knowledge graph lives in two indexed tables (see graph.go). These tools
+// no longer list and fetch every graph entry: edge lookups are index seeks and
+// traversal is a recursive CTE.
 
-// graphQueryTool finds all entities connected to the given entity in the
-// ─── graph_get_edges ─────────────────────────────────────────────────────
-
-// graphGetEdgesTool returns all edges for an entity (direct, no Prolog).
+// graphGetEdgesTool returns all edges for an entity (direct, no traversal).
 func graphGetEdgesTool(s *Storage) server.ServerTool {
 	return server.ServerTool{
 		Tool: mcp.NewTool("graph_get_edges",
-			mcp.WithDescription("Get all graph edges for an entity. Returns from, to, relation, and date without Prolog inference."),
+			mcp.WithDescription("Get all graph edges for an entity. Returns from, to, relation, date and source. Matching is case-insensitive."),
 			mcp.WithString("entity",
 				mcp.Description("Entity to find edges for"),
 				mcp.Required(),
@@ -694,37 +695,10 @@ func graphGetEdgesTool(s *Storage) server.ServerTool {
 				return mcp.NewToolResultText("Error: entity is required"), nil
 			}
 
-			keys, err := s.List("memory/graph/")
+			edges, err := edgesForEntity(s.goals, entity)
 			if err != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("List error: %v", err)), nil
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
 			}
-
-			type Edge struct {
-				From     string `json:"from"`
-				To       string `json:"to"`
-				Relation string `json:"relation"`
-				Date     string `json:"date"`
-			}
-			var edges []Edge
-
-			for _, key := range keys {
-				if strings.HasSuffix(key, "/") {
-					continue
-				}
-				mv, err := s.Get(key)
-				if err != nil {
-					continue
-				}
-				var e Edge
-				if err := json.Unmarshal([]byte(mv.Content), &e); err != nil {
-					continue
-				}
-				if !containsFold(e.From, entity) && !containsFold(e.To, entity) {
-					continue
-				}
-				edges = append(edges, e)
-			}
-
 			if len(edges) == 0 {
 				return mcp.NewToolResultText(fmt.Sprintf("No edges found for %q", entity)), nil
 			}
@@ -735,13 +709,11 @@ func graphGetEdgesTool(s *Storage) server.ServerTool {
 	}
 }
 
-// ─── graph_add_edge ──────────────────────────────────────────────────────
-
 // graphAddEdgeTool creates a new edge in the knowledge graph.
 func graphAddEdgeTool(s *Storage) server.ServerTool {
 	return server.ServerTool{
 		Tool: mcp.NewTool("graph_add_edge",
-			mcp.WithDescription("Add an edge to the knowledge graph. Creates a connection between two entities with a relation type."),
+			mcp.WithDescription("Add an edge to the knowledge graph. Creates a connection between two entities with a relation type. Idempotent: the same edge and date is stored once."),
 			mcp.WithString("from",
 				mcp.Description("Source entity"),
 				mcp.Required(),
@@ -768,20 +740,8 @@ func graphAddEdgeTool(s *Storage) server.ServerTool {
 			if from == "" || to == "" || relation == "" {
 				return mcp.NewToolResultText("Error: from, to, and relation are required"), nil
 			}
-			if date == "" {
-				date = time.Now().UTC().Format("2006-01-02")
-			}
 
-			key := fmt.Sprintf("memory/graph/%s-%s-%s-%s", date, from, to, relation)
-			value := fmt.Sprintf(`{"from":"%s","to":"%s","relation":"%s","date":"%s"}`,
-				jsonEscape(from), jsonEscape(to), jsonEscape(relation), date)
-			text := fmt.Sprintf("graph: %s --[%s]--> %s", from, relation, to)
-
-			memVal := MemoryValue{
-				Content: value,
-			}
-			_, err := s.Save(key, &memVal, text, false)
-			if err != nil {
+			if err := addGraphEdge(s.goals, from, to, relation, date, "graph_add_edge"); err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error saving edge: %v", err)), nil
 			}
 
@@ -790,14 +750,13 @@ func graphAddEdgeTool(s *Storage) server.ServerTool {
 	}
 }
 
-// ─── graph_query ─────────────────────────────────────────────────────────
-
-// graphQueryTool finds all entities connected to the given entity in the
-// knowledge graph. Loads edges from memory, evaluates via prolog-mcp.
+// graphQueryTool traverses the graph from an entity up to depth hops (real
+// traversal via a recursive CTE) and runs Prolog inference over the edges it
+// finds. Facts are loaded with a single query, not one fetch per edge.
 func graphQueryTool(s *Storage) server.ServerTool {
 	return server.ServerTool{
 		Tool: mcp.NewTool("graph_query",
-			mcp.WithDescription("Query the knowledge graph. Finds all entities connected to the given entity via graph edges, using Prolog inference."),
+			mcp.WithDescription("Query the knowledge graph. Returns entities connected to the given one within depth hops, plus Prolog inference over their edges."),
 			mcp.WithString("entity",
 				mcp.Description("Entity to find connections for"),
 				mcp.Required(),
@@ -824,126 +783,117 @@ func graphQueryTool(s *Storage) server.ServerTool {
 				limit = int(v)
 			}
 
-			// List all graph edge keys
-			keys, err := s.List("memory/graph/")
+			neighbours, err := neighborsForEntity(s.goals, entity, depth)
 			if err != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("List error: %v", err)), nil
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+			if len(neighbours) == 0 {
+				return mcp.NewToolResultText(fmt.Sprintf("No edges found for %q", entity)), nil
 			}
 
-			// Build Prolog facts from matching edges. Matching is
-			// case-insensitive so that "кирилл" and "Кирилл" behave the same.
+			// Load every edge among the start entity and its neighbours with one
+			// query, then hand the facts to Prolog for inference.
+			ids := make([]int64, 0, len(neighbours)+1)
+			if start, err := sqlh.Get[GraphEntity](s.goals,
+				sqlh.Where{Field: "name_key=", Value: normalizeName(entity)}); err == nil && start != nil {
+				ids = append(ids, start.ID)
+			}
+			for _, n := range neighbours {
+				ids = append(ids, n.ID)
+			}
+			edges, err := edgesAmong(s.goals, ids)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+
 			var b strings.Builder
-			var count int
-			canonical := make(map[string]struct{})
-			for _, key := range keys {
-				if strings.HasSuffix(key, "/") {
-					continue // folder entry
-				}
-				mv, err := s.Get(key)
-				if err != nil {
-					continue
-				}
-				var edge struct {
-					From     string `json:"from"`
-					To       string `json:"to"`
-					Relation string `json:"relation"`
-				}
-				if err := json.Unmarshal([]byte(mv.Content), &edge); err != nil {
-					continue
-				}
-				fromMatch := containsFold(edge.From, entity)
-				toMatch := containsFold(edge.To, entity)
-				if !fromMatch && !toMatch {
-					continue
-				}
-				if fromMatch {
-					canonical[edge.From] = struct{}{}
-				}
-				if toMatch {
-					canonical[edge.To] = struct{}{}
-				}
-				fmt.Fprintf(&b, "edge(%s,%s,%s).\n", prologAtom(edge.From), prologAtom(edge.To), prologAtom(edge.Relation))
+			count := 0
+			for _, e := range edges {
+				fmt.Fprintf(&b, "edge(%s,%s,%s).\n",
+					prologAtom(e.FromName), prologAtom(e.ToName), prologAtom(e.Relation))
 				count++
 				if count >= limit {
 					break
 				}
 			}
-			if b.Len() == 0 {
-				return mcp.NewToolResultText(fmt.Sprintf("No edges found for %q", entity)), nil
+
+			var prologOut string
+			if b.Len() > 0 {
+				fmt.Fprintf(&b, "\ndirect(A,B,R):-edge(A,B,R).\n")
+				fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(A,B,R).\n")
+				fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(B,A,R).\n")
+				fmt.Fprintf(&b, "related(A,B):-edge(A,B,_);edge(B,A,_).\n")
+				fmt.Fprintf(&b, "related(A,B):-edge(A,X,_),edge(X,B,_).\n")
+				fmt.Fprintf(&b, "?-related_with_rel(%s,X,R).\n", prologAtom(entity))
+
+				prologOut = callProlog(b.String())
 			}
 
-			// Add rules and queries
-			fmt.Fprintf(&b, "\ndirect(A,B,R):-edge(A,B,R).\n")
-			fmt.Fprintf(&b, "chain2(A,B,R1,R2):-edge(A,X,R1),edge(X,B,R2).\n")
-			fmt.Fprintf(&b, "related(A,B):-edge(A,B,_);edge(B,A,_).\n")
-			fmt.Fprintf(&b, "related(A,B):-edge(A,X,_),edge(X,B,_).\n")
-			fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(A,B,R).\n")
-			fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(B,A,R).\n")
-
-			// Query the canonical entity names that matched, so the Prolog
-			// atoms line up with the stored casing regardless of input case.
-			queries := make([]string, 0, len(canonical))
-			for c := range canonical {
-				queries = append(queries, fmt.Sprintf("related_with_rel(%s,X,R)", prologAtom(c)))
+			// Render the traversal grouped by depth.
+			var out strings.Builder
+			fmt.Fprintf(&out, "Entity: %s | Depth: %d | Neighbours: %d | Edges: %d\n",
+				entity, depth, len(neighbours), count)
+			lastDepth := 0
+			for _, n := range neighbours {
+				if n.Depth != lastDepth {
+					fmt.Fprintf(&out, "\n-- depth %d --\n", n.Depth)
+					lastDepth = n.Depth
+				}
+				fmt.Fprintf(&out, "  %s\n", n.Name)
 			}
-			sort.Strings(queries)
-			fmt.Fprintf(&b, "?-(%s).\n", strings.Join(queries, " ; "))
-
-			// Call prolog-mcp via HTTP gateway
-			prologReq := map[string]any{
-				"jsonrpc": "2.0",
-				"id":      time.Now().UnixMilli(),
-				"method":  "tools/call",
-				"params": map[string]any{
-					"name": "debug_query",
-					"arguments": map[string]any{
-						"code": b.String(),
-					},
-				},
+			if prologOut != "" {
+				fmt.Fprintf(&out, "\n-- inference --\n%s", prologOut)
 			}
-			reqBytes, _ := json.Marshal(prologReq)
-			resp, err := http.Post("http://localhost:7711/prolog-mcp", "application/json", bytes.NewReader(reqBytes))
-			if err != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("prolog call error: %v", err)), nil
-			}
-			defer resp.Body.Close()
-			respBody, _ := io.ReadAll(resp.Body)
-			if resp.StatusCode != 200 {
-				return mcp.NewToolResultText(fmt.Sprintf("prolog status %d: %s", resp.StatusCode, string(respBody))), nil
-			}
-
-			var pr struct {
-				Result *struct {
-					Content []struct {
-						Text string `json:"text"`
-					} `json:"content"`
-				} `json:"result"`
-				Error *struct {
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			json.Unmarshal(respBody, &pr)
-			if pr.Error != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("prolog error: %s", pr.Error.Message)), nil
-			}
-			prologResult := ""
-			if pr.Result != nil && len(pr.Result.Content) > 0 {
-				prologResult = pr.Result.Content[0].Text
-			}
-			// Format: if JSON, convert Prolog lists to human-readable
-			prologResult = strings.ReplaceAll(prologResult, "[", "")
-			prologResult = strings.ReplaceAll(prologResult, "]", "")
-			prologResult = strings.ReplaceAll(prologResult, ", ", "")
-			return mcp.NewToolResultText(fmt.Sprintf("Entity: %s | Depth: %d | Edges: %d\n\n%s", entity, depth, count, prologResult)), nil
+			return mcp.NewToolResultText(out.String()), nil
 		},
 	}
 }
 
-// containsFold reports whether s contains sub, ignoring Unicode case.
-// Used for graph entity matching so that "кирилл" and "Кирилл" behave the
-// same; SQLite's own lower()/LIKE only fold ASCII.
-func containsFold(s, sub string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
+// callProlog sends facts and rules to prolog-mcp through the MCP gateway and
+// returns its textual result.
+func callProlog(code string) string {
+	prologReq := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      time.Now().UnixMilli(),
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "debug_query",
+			"arguments": map[string]any{"code": code},
+		},
+	}
+	reqBytes, _ := json.Marshal(prologReq)
+	resp, err := http.Post("http://localhost:7711/prolog-mcp", "application/json", bytes.NewReader(reqBytes))
+	if err != nil {
+		return fmt.Sprintf("prolog call error: %v\n", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return fmt.Sprintf("prolog status %d: %s\n", resp.StatusCode, string(respBody))
+	}
+
+	var pr struct {
+		Result *struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	json.Unmarshal(respBody, &pr)
+	if pr.Error != nil {
+		return fmt.Sprintf("prolog error: %s\n", pr.Error.Message)
+	}
+	if pr.Result == nil || len(pr.Result.Content) == 0 {
+		return ""
+	}
+	res := pr.Result.Content[0].Text
+	res = strings.ReplaceAll(res, "[", "")
+	res = strings.ReplaceAll(res, "]", "")
+	return res
 }
 
 // prologAtom wraps a string in single quotes for use as a Prolog atom.

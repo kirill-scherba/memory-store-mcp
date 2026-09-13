@@ -199,12 +199,26 @@ func NewStorage(dbPath string) (*Storage, error) {
 		return nil, fmt.Errorf("create timeline_events table: %w", err)
 	}
 
+	// Knowledge-graph tables.
+	if err := createGraphTables(goalsDB); err != nil {
+		kv.Close()
+		goalsDB.Close()
+		return nil, err
+	}
+
 	// Enable the in-process, memory-mapped vector index next to the database.
 	// It is a derived artefact: built lazily and rebuilt when the data changes.
 	kv.SetVectorIndexDir(VectorIndexDir(dbPath))
 
+	store := &Storage{kv: kv, goals: goalsDB, dbPath: dbPath, extractFn: ExtractFacts}
+
+	// Move any legacy memory/graph/ entries into the graph tables.
+	if _, err := migrateLegacyGraph(store); err != nil {
+		log.Printf("⚠ legacy graph migration: %v", err)
+	}
+
 	log.Printf("✅ storage ready at: %s", dbPath)
-	return &Storage{kv: kv, goals: goalsDB, dbPath: dbPath, extractFn: ExtractFacts}, nil
+	return store, nil
 }
 
 // EnableAsync initialises the async writer with the given queue depth and

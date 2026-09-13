@@ -747,43 +747,17 @@ func TestMemoryResourcesJSON(t *testing.T) {
 	}
 }
 
-func TestContainsFold(t *testing.T) {
-	cases := []struct {
-		s, sub string
-		want   bool
-	}{
-		{"Кирилл", "кирилл", true},
-		{"кирилл", "Кирилл", true},
-		{"КИРИЛЛ", "Кирилл", true},
-		{"кошелёк Барона", "барон", true},
-		{"Сварня", "свар", true},
-		{"Baron", "baron", true},
-		{"Сварня", "Кирилл", false},
-		{"", "кирилл", false},
-	}
-	for _, c := range cases {
-		if got := containsFold(c.s, c.sub); got != c.want {
-			t.Errorf("containsFold(%q, %q) = %v, want %v", c.s, c.sub, got, c.want)
-		}
-	}
-}
-
 // TestGraphGetEdgesCaseInsensitive guards against the case-sensitive entity
 // matching that made "кирилл" return nothing while "Кирилл" returned edges.
 func TestGraphGetEdgesCaseInsensitive(t *testing.T) {
 	store := newTestStorage(t)
 
-	edges := []struct{ from, to, rel, date string }{
+	for _, e := range []struct{ from, to, rel, date string }{
 		{"Кирилл", "Сварня", "был_в", "2026-01-01"},
 		{"Барон", "Сварня", "был_в", "2026-01-02"},
-	}
-	for _, e := range edges {
-		key := "memory/graph/" + e.date + "-" + e.from + "-" + e.to + "-" + e.rel
-		val := MemoryValue{
-			Content: `{"from":"` + e.from + `","to":"` + e.to + `","relation":"` + e.rel + `","date":"` + e.date + `"}`,
-		}
-		if _, err := store.Save(key, &val, e.from+" "+e.rel+" "+e.to, false); err != nil {
-			t.Fatalf("save edge: %v", err)
+	} {
+		if err := addGraphEdge(store.goals, e.from, e.to, e.rel, e.date, "test"); err != nil {
+			t.Fatalf("addGraphEdge: %v", err)
 		}
 	}
 
