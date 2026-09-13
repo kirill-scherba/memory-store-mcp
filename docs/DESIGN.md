@@ -280,7 +280,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 - **Architecture**:
   - Spawns memory-store-mcp as a child process
   - Connects via JSON-RPC 2.0 over stdin/stdout
-  - 13 top-level subcommands cover memory, goal, timeline, suggestion, dig, and session workflows
+  - 15 top-level subcommands cover memory, goal, timeline, suggestion, dig, session, graph, and vector index maintenance
   - `session` groups the `session_save`, `session_get`, `session_list`, and `session_compact` MCP tools
 - **Features**:
   - Auto-discovery of memory-store-mcp binary (PATH, same directory, GOPATH/bin)
@@ -305,6 +305,8 @@ Five dynamic MCP resources provide direct access to aggregated state:
 | `find` | Keyword search via SQL LIKE |
 | `dig` | Deep contextual search with time-window scenes |
 | `session` | Manage AI session state (save/get/list/compact) |
+| `graph` | Knowledge graph operations (get edges, query) |
+| `migrate-vector-index` | Add and build the native libSQL vector index (idempotent; also repairs unindexed rows) |
 
 ## Telegram Bot (Optional)
 
@@ -504,13 +506,30 @@ To minimise latency for voice/Alice interactions, `memory_save` can return immed
 
 ## Similarity Search
 
-Cosine similarity computed in Go (not SQL):
+Search is delegated to `keyvalembd.SearchSemantic` / `SearchByEmbedding`, which
+selects one of two strategies:
 
-```go
-cosineSimilarity(a, b) = dot(a,b) / (|a| * |b|)
-```
+- **Native libSQL vector index (DiskANN)** — used when the database has been
+  migrated (`memory-cli migrate-vector-index`) and the collection holds at
+  least 1500 embeddings. Candidates come from `vector_top_k()` and are then
+  re-ranked by exact cosine distance. The index is maintained automatically by
+  libSQL on INSERT/UPDATE/DELETE, so the write path only has to keep the
+  `embedding_vec` column populated.
+- **Exact cosine scan** — every stored embedding is fetched and compared in Go:
 
-All stored embeddings are fetched and compared in Go. For large collections, SQL-level vector search via libsql vector extension can be added later.
+  ```go
+  cosineSimilarity(a, b) = dot(a,b) / (|a| * |b|)
+  ```
+
+  Exact (100% recall) but O(N). Used for small collections or when the index is
+  unavailable.
+
+Measured on the production database (6845 vectors, 768-dim) on 2026-09-13:
+**22 ms** per query with the index versus **124 ms** for the exact scan;
+recall@1 and recall@5 100%, recall@10 ~98%.
+
+See [keyvalembd DESIGN.md](https://github.com/kirill-scherba/keyvalembd/blob/main/docs/DESIGN.md)
+for the migration and re-ranking details.
 
 ## Graceful Degradation
 

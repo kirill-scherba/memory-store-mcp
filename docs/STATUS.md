@@ -10,7 +10,7 @@
 
 - [x] MCP server framework with `mcp-go`
 - [x] Key-value storage backed by libSQL via keyvalembd
-- [x] Semantic search via Ollama embeddings (cosine similarity in Go)
+- [x] Semantic search via Ollama embeddings (native libSQL vector index for large collections, exact cosine scan otherwise)
 - [x] 19 MCP tools (save, get, delete, search, list, context, extract, goal CRUD, timeline, suggest, find, dig, session save/get/list/compact)
 - [x] 5 MCP resources (goals, awareness, context, insights, timeline)
 - [x] Graceful degradation when Ollama unavailable
@@ -67,6 +67,8 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 
 | Date | Commit | Description |
 |------|--------|-------------|
+| 2026-09-13 | `0ff7a24` | fix(cli): make migrate-vector-index re-run as a repair |
+| 2026-09-13 | `0cb50b3` | feat(cli): add migrate-vector-index command; bump keyvalembd to v0.4.0 |
 | 2026-07-08 | `c51e4f8` | feat: add memory_dig — contextual deep-search with scenes and time windows |
 | 2026-07-08 | `0554f4f` | fix test: update expected subcommand count to 11 (added 'find') |
 | 2026-07-08 | `e1c8c97` | Merge origin/main (PR #32 save timeout) into local changes |
@@ -148,7 +150,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 ## Known Issues
 
 1. **No integration tests** — unit tests cover goals, LLM, and Telegram assistant, but no end-to-end test with a real database
-2. **No performance benchmarks** — semantic search performance on large datasets (10k+ entries) is unknown
+2. **Semantic search performance** — measured 2026-09-13 on 6845 vectors: 22 ms per query with the native vector index vs 124 ms for the exact scan (recall@1/@5 100%, recall@10 ~98%). The threshold (1500) should be re-checked as collections grow
 3. **No Dockerfile** — currently requires manual Go build; no containerised deployment
 4. **Ollama dependency** — semantic search and LLM features require a running Ollama instance; graceful degradation is in place but reduced functionality
 5. **BotFather commands** — bot commands are registered via API on every start; this is fine but could be made optional with a flag
@@ -158,6 +160,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 
 ## Recent Fixes & Features
 
+- **Native vector index** (2026-09-13): bumped keyvalembd to v0.4.0 and added the `memory-cli migrate-vector-index` command. The production database (6845 vectors) was migrated: semantic search now uses libSQL's DiskANN index with exact re-ranking, measured at 22 ms per query versus 124 ms for the exact scan, recall@1/@5 100%, recall@10 ~98%. The command is idempotent and doubles as a repair that re-indexes rows written without the vector column. Small collections (rag-mcp, hub-server) stay on the exact scan.
 - **Issue #33 / PR #34** (2026-07-13): `memory_extract` async — added `AsyncExtractor` (1 worker, queue depth 64), dedicated no-timeout `extractClient`, `--extract-model` flag. `memory_extract(auto_save=true)` returns `{status: "accepted", job_id}` immediately; facts are saved in the background. `memory_extract(auto_save=false)` stays synchronous and returns the extracted facts directly. Eliminates double timeout (MCP gateway 30s + Ollama HTTP 120s) that caused data loss
 - **Model switch** (2026-07-13): default model changed from `qwen2.5-coder:7b` to `phi4-mini` after comparative testing. See [DESIGN.md](DESIGN.md) for full test results. `qwen2.5-coder:7b` remains available via `--extract-model` / `--chat-model` flags
 - **memory_find** (2026-07-08): keyword search via SQL LIKE on keys and values with Unicode case-insensitivity fallback for Russian. Complements semantic memory_search
