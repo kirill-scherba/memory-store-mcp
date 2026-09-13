@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -699,7 +700,7 @@ func graphGetEdgesTool(s *Storage) server.ServerTool {
 				if err := json.Unmarshal([]byte(mv.Content), &e); err != nil {
 					continue
 				}
-				if !strings.Contains(e.From, entity) && !strings.Contains(e.To, entity) {
+				if !containsFold(e.From, entity) && !containsFold(e.To, entity) {
 					continue
 				}
 				edges = append(edges, e)
@@ -810,9 +811,11 @@ func graphQueryTool(s *Storage) server.ServerTool {
 				return mcp.NewToolResultText(fmt.Sprintf("List error: %v", err)), nil
 			}
 
-			// Build Prolog facts from matching edges
+			// Build Prolog facts from matching edges. Matching is
+			// case-insensitive so that "кирилл" and "Кирилл" behave the same.
 			var b strings.Builder
 			var count int
+			canonical := make(map[string]struct{})
 			for _, key := range keys {
 				if strings.HasSuffix(key, "/") {
 					continue // folder entry
@@ -829,8 +832,16 @@ func graphQueryTool(s *Storage) server.ServerTool {
 				if err := json.Unmarshal([]byte(mv.Content), &edge); err != nil {
 					continue
 				}
-				if !strings.Contains(edge.From, entity) && !strings.Contains(edge.To, entity) {
+				fromMatch := containsFold(edge.From, entity)
+				toMatch := containsFold(edge.To, entity)
+				if !fromMatch && !toMatch {
 					continue
+				}
+				if fromMatch {
+					canonical[edge.From] = struct{}{}
+				}
+				if toMatch {
+					canonical[edge.To] = struct{}{}
 				}
 				fmt.Fprintf(&b, "edge(%s,%s,%s).\n", prologAtom(edge.From), prologAtom(edge.To), prologAtom(edge.Relation))
 				count++
@@ -849,7 +860,15 @@ func graphQueryTool(s *Storage) server.ServerTool {
 			fmt.Fprintf(&b, "related(A,B):-edge(A,X,_),edge(X,B,_).\n")
 			fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(A,B,R).\n")
 			fmt.Fprintf(&b, "related_with_rel(A,B,R):-edge(B,A,R).\n")
-			fmt.Fprintf(&b, "?-related_with_rel(%s,X,R).\n", prologAtom(entity))
+
+			// Query the canonical entity names that matched, so the Prolog
+			// atoms line up with the stored casing regardless of input case.
+			queries := make([]string, 0, len(canonical))
+			for c := range canonical {
+				queries = append(queries, fmt.Sprintf("related_with_rel(%s,X,R)", prologAtom(c)))
+			}
+			sort.Strings(queries)
+			fmt.Fprintf(&b, "?-(%s).\n", strings.Join(queries, " ; "))
 
 			// Call prolog-mcp via HTTP gateway
 			prologReq := map[string]any{
@@ -899,6 +918,13 @@ func graphQueryTool(s *Storage) server.ServerTool {
 			return mcp.NewToolResultText(fmt.Sprintf("Entity: %s | Depth: %d | Edges: %d\n\n%s", entity, depth, count, prologResult)), nil
 		},
 	}
+}
+
+// containsFold reports whether s contains sub, ignoring Unicode case.
+// Used for graph entity matching so that "кирилл" and "Кирилл" behave the
+// same; SQLite's own lower()/LIKE only fold ASCII.
+func containsFold(s, sub string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }
 
 // prologAtom wraps a string in single quotes for use as a Prolog atom.

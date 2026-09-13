@@ -745,3 +745,71 @@ func TestMemoryResourcesJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestContainsFold(t *testing.T) {
+	cases := []struct {
+		s, sub string
+		want   bool
+	}{
+		{"Кирилл", "кирилл", true},
+		{"кирилл", "Кирилл", true},
+		{"КИРИЛЛ", "Кирилл", true},
+		{"кошелёк Барона", "барон", true},
+		{"Сварня", "свар", true},
+		{"Baron", "baron", true},
+		{"Сварня", "Кирилл", false},
+		{"", "кирилл", false},
+	}
+	for _, c := range cases {
+		if got := containsFold(c.s, c.sub); got != c.want {
+			t.Errorf("containsFold(%q, %q) = %v, want %v", c.s, c.sub, got, c.want)
+		}
+	}
+}
+
+// TestGraphGetEdgesCaseInsensitive guards against the case-sensitive entity
+// matching that made "кирилл" return nothing while "Кирилл" returned edges.
+func TestGraphGetEdgesCaseInsensitive(t *testing.T) {
+	store := newTestStorage(t)
+
+	edges := []struct{ from, to, rel, date string }{
+		{"Кирилл", "Сварня", "был_в", "2026-01-01"},
+		{"Барон", "Сварня", "был_в", "2026-01-02"},
+	}
+	for _, e := range edges {
+		key := "memory/graph/" + e.date + "-" + e.from + "-" + e.to + "-" + e.rel
+		val := MemoryValue{
+			Content: `{"from":"` + e.from + `","to":"` + e.to + `","relation":"` + e.rel + `","date":"` + e.date + `"}`,
+		}
+		if _, err := store.Save(key, &val, e.from+" "+e.rel+" "+e.to, false); err != nil {
+			t.Fatalf("save edge: %v", err)
+		}
+	}
+
+	tool := graphGetEdgesTool(store)
+	call := func(entity string) string {
+		t.Helper()
+		res, err := tool.Handler(context.Background(), newToolRequest(map[string]interface{}{"entity": entity}))
+		if err != nil {
+			t.Fatalf("Handler error = %v", err)
+		}
+		return res.Content[0].(mcp.TextContent).Text
+	}
+
+	upper := call("Кирилл")
+	lower := call("кирилл")
+	if !strings.Contains(upper, "Сварня") {
+		t.Fatalf("upper-case query did not find the edge: %s", upper)
+	}
+
+	// The header echoes the query, so compare only the edge list body.
+	body := func(s string) string {
+		if i := strings.Index(s, "\n"); i >= 0 {
+			return s[i+1:]
+		}
+		return s
+	}
+	if body(lower) != body(upper) {
+		t.Fatalf("case-insensitive mismatch:\n lower=%q\n upper=%q", lower, upper)
+	}
+}
