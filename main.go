@@ -53,6 +53,8 @@ func main() {
 		"HTTP listen address (enables StreamableHTTP transport, e.g. ':8080')")
 	saveTimeout := flag.Duration("save-timeout", 60*time.Second,
 		"Maximum duration for memory_save operations (including embedding generation)")
+	timelineRetentionFlag := flag.Duration("timeline-retention", 30*24*time.Hour,
+		"Retention window for timeline_events (0 keeps everything)")
 	showHelp := flag.Bool("h", false, "Show help")
 	flag.Parse()
 
@@ -126,6 +128,20 @@ func main() {
 	// This makes memory_extract run the LLM call asynchronously, eliminating
 	// the double timeout problem on long conversations.
 	store.EnableAsyncExtractor(64)
+
+	// Prune old timeline events in the background, then periodically. The
+	// timeline is an event log, not an audit trail; without retention it grows
+	// without bound (it had reached 2.7M rows / 327 MB). Runs in a goroutine
+	// because the first pass can delete millions of rows.
+	SetTimelineRetention(*timelineRetentionFlag)
+	go func() {
+		pruneTimeline(store)
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			pruneTimeline(store)
+		}
+	}()
 
 	log.Printf("🚀 Starting memory-store-mcp server")
 	log.Printf("   DB path:        %s", *dbPath)

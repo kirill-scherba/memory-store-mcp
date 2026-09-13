@@ -32,8 +32,27 @@ func setSaveTimeout(d time.Duration) {
 }
 
 // logWrap wraps an MCP handler to automatically log usage events.
+// timelineLogAllow is the set of tool calls worth recording in
+// timeline_events. Read-only tools are deliberately excluded: before this
+// whitelist existed, read calls dominated the table (2.6M memory_get rows,
+// ~176 MB) and buried the meaningful events.
+var timelineLogAllow = map[string]bool{
+	"memory_save":        true,
+	"memory_delete":      true,
+	"memory_extract":     true,
+	"session_save":       true,
+	"graph_add_edge":     true,
+	"memory_goal_create": true,
+	"memory_goal_update": true,
+	"memory_goal_delete": true,
+}
+
 func logWrap(name string, s *Storage, fn server.ToolHandlerFunc) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if !timelineLogAllow[name] {
+			return fn(ctx, request)
+		}
+
 		args := request.GetArguments()
 
 		// Extract key/summary from request arguments

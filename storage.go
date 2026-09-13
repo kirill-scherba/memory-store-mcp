@@ -1046,6 +1046,97 @@ func (s *Storage) LogEvent(eventType string, key, summary, details string) {
 	}
 }
 
+// timelineRetention is how long timeline events are kept. Zero disables
+// pruning. Configured via --timeline-retention.
+var timelineRetention = 30 * 24 * time.Hour
+
+// SetTimelineRetention configures the timeline retention window. A zero
+// duration disables pruning.
+func SetTimelineRetention(d time.Duration) {
+	if d >= 0 {
+		timelineRetention = d
+	}
+}
+
+// TimelineRetention returns the current retention window.
+func TimelineRetention() time.Duration {
+	return timelineRetention
+}
+
+// PruneTimeline keeps timeline_events bounded. It removes two classes of rows
+// and returns the number removed:
+//
+//  1. events whose type is not in timelineLogAllow — historical read noise,
+//     for example the millions of memory_get rows logged before the allowlist;
+//  2. events older than the retention window.
+//
+// Aged rows are deleted in bounded batches so a large backlog does not hold one
+// long write lock. The type purge is independent of the retention window.
+func (s *Storage) PruneTimeline() (int64, error) {
+	var total int64
+
+	// 1. Drop event types that are not worth keeping.
+	if len(timelineLogAllow) > 0 {
+		types := make([]string, 0, len(timelineLogAllow))
+		for t := range timelineLogAllow {
+			types = append(types, t)
+		}
+		sort.Strings(types)
+
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(types)), ",")
+		args := make([]any, len(types))
+		for i, t := range types {
+			args[i] = t
+		}
+		res, err := s.goals.Exec(
+			`DELETE FROM timeline_events WHERE event_type NOT IN (`+placeholders+`)`,
+			args...)
+		if err != nil {
+			return total, fmt.Errorf("prune timeline types: %w", err)
+		}
+		if n, err := res.RowsAffected(); err == nil {
+			total += n
+		}
+	}
+
+	// 2. Drop events older than the retention window.
+	if timelineRetention <= 0 {
+		return total, nil
+	}
+	cutoff := time.Now().UTC().Add(-timelineRetention).Format(time.RFC3339Nano)
+
+	const batch = 50000
+	for {
+		res, err := s.goals.Exec(
+			`DELETE FROM timeline_events WHERE id IN (
+				SELECT id FROM timeline_events WHERE created_at < ? LIMIT ?)`,
+			cutoff, batch)
+		if err != nil {
+			return total, fmt.Errorf("prune timeline: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return total, nil
+		}
+		total += n
+		if n < batch {
+			return total, nil
+		}
+	}
+}
+
+// pruneTimeline runs PruneTimeline and logs the outcome.
+func pruneTimeline(s *Storage) {
+	n, err := s.PruneTimeline()
+	if err != nil {
+		log.Printf("⚠ timeline prune failed: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("🧹 pruned %d timeline events older than %v", n, TimelineRetention())
+	}
+}
+
 // GetTimeline returns events from timeline_events within the given date range.
 // If from or to is empty, no bound is applied.
 func (s *Storage) GetTimeline(from, to string, limit int) ([]TimelineEntry, error) {

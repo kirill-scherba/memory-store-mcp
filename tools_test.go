@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -811,5 +812,98 @@ func TestGraphGetEdgesCaseInsensitive(t *testing.T) {
 	}
 	if body(lower) != body(upper) {
 		t.Fatalf("case-insensitive mismatch:\n lower=%q\n upper=%q", lower, upper)
+	}
+}
+
+func TestTimelineLogWhitelist(t *testing.T) {
+	for _, read := range []string{"memory_get", "memory_list", "memory_search", "memory_find", "graph_get_edges"} {
+		if timelineLogAllow[read] {
+			t.Errorf("read tool %q must not be logged to the timeline", read)
+		}
+	}
+	for _, write := range []string{"memory_save", "memory_delete", "memory_extract", "session_save", "graph_add_edge"} {
+		if !timelineLogAllow[write] {
+			t.Errorf("write tool %q must be logged to the timeline", write)
+		}
+	}
+}
+
+func TestLogWrapRespectsWhitelist(t *testing.T) {
+	store := newTestStorage(t)
+
+	countEvents := func() int {
+		t.Helper()
+		var n int
+		if err := store.goals.QueryRow(`SELECT COUNT(*) FROM timeline_events`).Scan(&n); err != nil {
+			t.Fatalf("count events: %v", err)
+		}
+		return n
+	}
+
+	ok := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("ok"), nil
+	}
+	read := logWrap("memory_get", store, ok)
+	write := logWrap("memory_save", store, ok)
+	req := newToolRequest(map[string]interface{}{"key": "memory/test/x"})
+
+	if _, err := read(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if n := countEvents(); n != 0 {
+		t.Fatalf("read tool logged %d events, want 0", n)
+	}
+
+	if _, err := write(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if n := countEvents(); n != 1 {
+		t.Fatalf("write tool logged %d events, want 1", n)
+	}
+}
+
+func TestPruneTimeline(t *testing.T) {
+	store := newTestStorage(t)
+
+	insertEvent := func(eventType, key string, at time.Time) {
+		t.Helper()
+		if _, err := store.goals.Exec(
+			`INSERT INTO timeline_events (event_type, key, summary, details, created_at)
+			 VALUES (?,?,?,?,?)`,
+			eventType, key, "", "", at.Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("insert %s event: %v", eventType, err)
+		}
+	}
+
+	// One old whitelisted event, one fresh whitelisted event, and one
+	// non-whitelisted (read noise) event that must go regardless of age.
+	insertEvent("memory_save", "old", time.Now().UTC().Add(-40*24*time.Hour))
+	store.LogEvent("memory_save", "fresh", "", "")
+	insertEvent("memory_get", "noise", time.Now().UTC())
+
+	SetTimelineRetention(30 * 24 * time.Hour)
+	t.Cleanup(func() { SetTimelineRetention(30 * 24 * time.Hour) })
+
+	n, err := store.PruneTimeline()
+	if err != nil {
+		t.Fatalf("PruneTimeline: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("pruned %d events, want 2 (one aged, one read noise)", n)
+	}
+
+	var remaining int
+	if err := store.goals.QueryRow(`SELECT COUNT(*) FROM timeline_events`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 1 {
+		t.Fatalf("remaining %d events, want 1", remaining)
+	}
+
+	// Retention of zero disables age pruning, but the type purge still applies.
+	SetTimelineRetention(0)
+	insertEvent("memory_get", "noise2", time.Now().UTC())
+	if n, err := store.PruneTimeline(); err != nil || n != 1 {
+		t.Fatalf("retention=0: n=%d err=%v, want 1 (type purge only)", n, err)
 	}
 }
