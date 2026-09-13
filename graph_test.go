@@ -7,6 +7,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +111,30 @@ func TestEdgesForEntity(t *testing.T) {
 
 	if edges, _ := edgesForEntity(db, "нет-такого"); len(edges) != 0 {
 		t.Fatalf("expected no edges, got %+v", edges)
+	}
+}
+
+// TestGraphEdgesJSONShape guards the field names the gallery reads. Without
+// json tags the struct marshals as FromName/ToName/Relation and the gallery's
+// viewer renders nothing.
+func TestGraphEdgesJSONShape(t *testing.T) {
+	store := newTestStorage(t)
+
+	if err := addGraphEdge(store.goals, "img_1.png", "Сварня", "фото_в", "2026-07-25", "test"); err != nil {
+		t.Fatal(err)
+	}
+	edges, err := edgesForEntity(store.goals, "img_1.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"from"`, `"to"`, `"relation"`, `"date"`} {
+		if !strings.Contains(string(data), field) {
+			t.Fatalf("edge JSON is missing %s: %s", field, data)
+		}
 	}
 }
 

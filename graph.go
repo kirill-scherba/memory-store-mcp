@@ -51,14 +51,15 @@ type GraphEdge struct {
 	_ string `db:"-" db_key:"UNIQUE (from_id, relation, to_id, date)"`
 }
 
-// GraphEdgeRow is a joined view of an edge with both entity names.
+// GraphEdgeRow is a joined view of an edge with both entity names. The JSON
+// tags keep the field names the consumers (the gallery) already expect.
 type GraphEdgeRow struct {
-	FromName   string  `db:"from_name"`
-	ToName     string  `db:"to_name"`
-	Relation   string  `db:"relation"`
-	Date       string  `db:"date"`
-	Source     string  `db:"source"`
-	Confidence float64 `db:"confidence"`
+	FromName   string  `db:"from_name" json:"from"`
+	ToName     string  `db:"to_name" json:"to"`
+	Relation   string  `db:"relation" json:"relation"`
+	Date       string  `db:"date" json:"date"`
+	Source     string  `db:"source" json:"source,omitempty"`
+	Confidence float64 `db:"confidence" json:"confidence,omitempty"`
 }
 
 // GraphNeighbor is an entity reachable from the queried one.
