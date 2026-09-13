@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"regexp"
 	"fmt"
 	"log"
 	"strings"
@@ -23,36 +24,84 @@ type ExtractedFact struct {
 	Tags    []string `json:"tags,omitempty"`
 }
 
+// GraphTriple is a relation between two named entities, extracted from the same
+// text and in the same LLM call as the facts.
+type GraphTriple struct {
+	From     string `json:"from"`
+	Relation string `json:"relation"`
+	To       string `json:"to"`
+	Date     string `json:"date,omitempty"`
+}
+
+// ExtractResult is the outcome of one extraction.
+type ExtractResult struct {
+	Facts   []ExtractedFact `json:"facts"`
+	Triples []GraphTriple   `json:"triples"`
+}
+
 // extractSystemPrompt returns the system prompt for the extraction LLM call.
 func extractSystemPrompt() string {
-	return `You are a fact extraction system. Given a conversation text, extract important facts, decisions, intentions, and key information.
+	return `You are a fact extraction system. Given a conversation text, extract important facts, decisions, intentions, key information — and the relations between the entities named in the text.
 
-For each fact, provide:
-1. content: The full original text of the fact
-2. summary: A one-line summary (max 100 chars)
-3. tags: 2-5 relevant tags as a JSON array
+Return a JSON object with exactly two keys:
 
-Return ONLY a JSON array of fact objects, nothing else. Example:
-[{"content": "Using Go 1.26 with libSQL for the project", "summary": "Tech stack: Go 1.26 + libSQL", "tags": ["go", "libsql", "tech-stack"]}]`
+1. "facts" — an array of fact objects:
+   - content: the full original text of the fact
+   - summary: a one-line summary (max 100 chars)
+   - tags: 2-5 relevant tags
+
+2. "triples" — an array of relations between two entities that are BOTH named in the text:
+   - from: source entity (person, place, project, image, dish, idea, ...)
+   - relation: a short lowercase Russian verb with underscores
+     (был_в, заказал, сгенерировал, породил_идею, рассказал_о, работает_над, написал, ...)
+   - to: target entity
+   - date: YYYY-MM-DD when the text states one, otherwise ""
+
+Only emit a triple when both entities really appear in the text. Never invent entities. If there are no relations, return an empty array.
+
+Return ONLY the JSON object, nothing else. Example:
+{"facts":[{"content":"Using Go 1.26 for the project","summary":"Tech stack: Go 1.26","tags":["go","tech-stack"]}],"triples":[{"from":"Кирилл","relation":"был_в","to":"Сварня","date":"2026-09-13"}]}`
+}
+
+// trailingComma matches a comma that directly precedes a closing bracket —
+// the most common way small models produce invalid JSON.
+var trailingComma = regexp.MustCompile(`,\s*([}\]])`)
+
+// sanitizeLLMJSON cleans up what small models emit around valid JSON: Markdown
+// code fences and trailing commas before a closing bracket. Both make the
+// response unparseable, and both are cheap to fix.
+func sanitizeLLMJSON(s string) string {
+	s = strings.TrimSpace(s)
+
+	// Markdown code fence: ```json ... ```
+	if strings.HasPrefix(s, "```") {
+		if i := strings.Index(s, "\n"); i >= 0 {
+			s = s[i+1:]
+		}
+		s = strings.TrimSuffix(strings.TrimSpace(s), "```")
+	}
+
+	s = trailingComma.ReplaceAllString(s, "$1")
+	return strings.TrimSpace(s)
 }
 
 // ExtractFacts uses the LLM to extract structured facts from conversation text.
 // Uses the synchronous chat client (ollamaClient, 120s timeout) and is kept
 // for backward compatibility and synchronous callers.
-func ExtractFacts(text string) ([]ExtractedFact, error) {
+func ExtractFacts(text string) (*ExtractResult, error) {
 	return extractFactsWithGenerator(text, generateAnswer)
 }
 
 // ExtractFactsAsync extracts facts using the background extraction model and
 // no-timeout client. Used by AsyncExtractor so that long-running extractions
 // are not cut off by the 120s ollamaClient timeout.
-func ExtractFactsAsync(text string) ([]ExtractedFact, error) {
+func ExtractFactsAsync(text string) (*ExtractResult, error) {
 	return extractFactsWithGenerator(text, generateExtractAnswer)
 }
 
 // extractFactsWithGenerator performs the extraction using the provided
 // generator function.
-func extractFactsWithGenerator(text string, generateFn func([]OllamaChatMessage) (string, error)) ([]ExtractedFact, error) {
+func extractFactsWithGenerator(text string, generateFn func([]OllamaChatMessage) (string, error)) (*ExtractResult, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
@@ -67,22 +116,32 @@ func extractFactsWithGenerator(text string, generateFn func([]OllamaChatMessage)
 		return nil, fmt.Errorf("LLM extract failed: %w", err)
 	}
 
-	// Parse JSON response
-	var facts []ExtractedFact
-	if err := json.Unmarshal([]byte(answer), &facts); err != nil {
-		// Try to extract JSON array from the response
-		cleaned := answer
-		if idx := strings.Index(answer, "["); idx >= 0 {
-			if end := strings.LastIndex(answer, "]"); end > idx {
-				cleaned = answer[idx : end+1]
-			}
+	// Parse the JSON response. The current format is an object with "facts" and
+	// "triples"; a bare array of facts (the previous format) is still accepted.
+	answer = sanitizeLLMJSON(answer)
+	cleaned := answer
+	if idx := strings.Index(answer, "{"); idx >= 0 {
+		if end := strings.LastIndex(answer, "}"); end > idx {
+			cleaned = answer[idx : end+1]
 		}
-		if err := json.Unmarshal([]byte(cleaned), &facts); err != nil {
-			return nil, fmt.Errorf("parse facts JSON: %w (response: %s)", err, answer)
+	} else if idx := strings.Index(answer, "["); idx >= 0 {
+		if end := strings.LastIndex(answer, "]"); end > idx {
+			cleaned = answer[idx : end+1]
 		}
 	}
 
-	return facts, nil
+	var res ExtractResult
+	if err := json.Unmarshal([]byte(cleaned), &res); err == nil &&
+		(res.Facts != nil || res.Triples != nil) {
+		return &res, nil
+	}
+
+	var facts []ExtractedFact
+	if err := json.Unmarshal([]byte(cleaned), &facts); err == nil {
+		return &ExtractResult{Facts: facts}, nil
+	}
+
+	return nil, fmt.Errorf("parse extraction JSON: %s", answer)
 }
 
 // ---------------------------------------------------------------------------

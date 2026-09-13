@@ -370,3 +370,33 @@ func TestBackfillImageGraph(t *testing.T) {
 		t.Fatal("backfill added no edges")
 	}
 }
+
+// TestSaveExtractedTriples covers the graph edges produced by memory_extract.
+func TestSaveExtractedTriples(t *testing.T) {
+	store := newTestStorage(t)
+
+	n := store.saveExtractedTriples([]GraphTriple{
+		{From: "Кирилл", Relation: "был_в", To: "Сварня", Date: "2026-09-13"},
+		{From: "", Relation: "мусор", To: "мусор"},                              // incomplete: skipped
+		{From: "Кирилл", Relation: "был_в", To: "Сварня", Date: "2026-09-13"},   // duplicate
+	})
+	if n != 2 {
+		t.Fatalf("processed %d triples, want 2 (one incomplete skipped)", n)
+	}
+
+	_, edges, err := graphStats(store.goals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edges != 1 {
+		t.Fatalf("graph has %d edges, want 1 (duplicate deduplicated)", edges)
+	}
+
+	found, err := edgesForEntity(store.goals, "Сварня")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0].Relation != "был_в" {
+		t.Fatalf("unexpected edges: %+v", found)
+	}
+}

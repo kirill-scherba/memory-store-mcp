@@ -8,17 +8,22 @@ import (
 )
 
 // stubExtractFn returns a fixed set of facts for testing without calling Ollama.
-func stubExtractFn(text string) ([]ExtractedFact, error) {
+func stubExtractFn(text string) (*ExtractResult, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
-	return []ExtractedFact{
-		{Content: text, Summary: "stub fact", Tags: []string{"stub"}},
+	return &ExtractResult{
+		Facts: []ExtractedFact{
+			{Content: text, Summary: "stub fact", Tags: []string{"stub"}},
+		},
+		Triples: []GraphTriple{
+			{From: "stub-from", Relation: "stub-relation", To: "stub-to"},
+		},
 	}, nil
 }
 
 // failExtractFn always fails, for testing error handling.
-func failExtractFn(text string) ([]ExtractedFact, error) {
+func failExtractFn(text string) (*ExtractResult, error) {
 	return nil, fmt.Errorf("intentional extraction failure")
 }
 
@@ -210,7 +215,7 @@ func TestAsyncExtractorConcurrentSubmitStop(t *testing.T) {
 	defer store.Close()
 
 	ae := NewAsyncExtractor(store, 64)
-	ae.extractFn = func(text string) ([]ExtractedFact, error) {
+	ae.extractFn = func(text string) (*ExtractResult, error) {
 		// Slow enough to create overlap with Stop.
 		time.Sleep(10 * time.Millisecond)
 		return stubExtractFn(text)

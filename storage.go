@@ -233,7 +233,7 @@ type Storage struct {
 	dbPath         string
 	asyncWriter    *AsyncWriter    // non-blocking writes; nil = sync-only
 	asyncExtractor *AsyncExtractor // background LLM extraction; nil = sync-only
-	extractFn      func(string) ([]ExtractedFact, error)
+	extractFn      func(string) (*ExtractResult, error)
 }
 
 // VectorIndexDir returns the default directory for the in-process vector index
@@ -354,8 +354,7 @@ func (s *Storage) SubmitExtract(text string, autoSave bool) (string, error) {
 	}
 	// Synchronous extraction without saving — used when the async extractor is
 	// disabled and the caller wants to review facts before persisting them.
-	_, err := s.extractFn(text)
-	if err != nil {
+	if _, err := s.extractFn(text); err != nil {
 		return "", err
 	}
 	return "sync-direct", nil
@@ -372,6 +371,26 @@ func (s *Storage) ExtractJobStatus(jobID string) (ExtractJobStatus, error) {
 		return ExtractJobStatus{}, fmt.Errorf("job %s not found", jobID)
 	}
 	return st, nil
+}
+
+// saveExtractedTriples writes the relations found by the extractor into the
+// graph. Idempotent (addGraphEdge deduplicates) and never fatal: a bad triple
+// must not lose the extracted facts. Returns the number of triples processed.
+func (s *Storage) saveExtractedTriples(triples []GraphTriple) int {
+	saved := 0
+	for _, t := range triples {
+		if strings.TrimSpace(t.From) == "" ||
+			strings.TrimSpace(t.To) == "" ||
+			strings.TrimSpace(t.Relation) == "" {
+			continue
+		}
+		if err := addGraphEdge(s.goals, t.From, t.To, t.Relation, t.Date, "auto:extract"); err != nil {
+			log.Printf("⚠ graph: triple %s -[%s]-> %s: %v", t.From, t.Relation, t.To, err)
+			continue
+		}
+		saved++
+	}
+	return saved
 }
 
 // saveExtractedFacts saves a list of extracted facts to memory. Used by the
@@ -1314,13 +1333,14 @@ func (s *Storage) GetTimeline(from, to string, limit int) ([]TimelineEntry, erro
 // ExtractAndSave analyses the given text using the LLM and saves extracted
 // facts automatically. Returns the list of saved memory keys.
 func (s *Storage) ExtractAndSave(text string) ([]string, error) {
-	facts, err := s.extractFn(text)
+	res, err := s.extractFn(text)
 	if err != nil {
 		return nil, fmt.Errorf("extract facts: %w", err)
 	}
+	s.saveExtractedTriples(res.Triples)
 
 	var savedKeys []string
-	for _, fact := range facts {
+	for _, fact := range res.Facts {
 		val := &MemoryValue{
 			Content:   fact.Content,
 			Summary:   fact.Summary,

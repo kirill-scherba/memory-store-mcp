@@ -169,7 +169,7 @@ type AsyncExtractor struct {
 	stopMu    sync.RWMutex // guards stopped flag and channel close/send coordination
 	mu        sync.Mutex    // guards jobs map
 	jobs      map[string]*ExtractJobStatus
-	extractFn func(string) ([]ExtractedFact, error)
+	extractFn func(string) (*ExtractResult, error)
 }
 
 // NewAsyncExtractor creates an AsyncExtractor with 1 worker and the given
@@ -232,7 +232,7 @@ func (ae *AsyncExtractor) Submit(text string, autoSave bool) (string, error) {
 // cannot accept the job. Updates the tracked job status and returns the job ID.
 // Mirrors the worker's extraction/save split so the autoSave flag is respected.
 func (ae *AsyncExtractor) fallbackSyncExtract(jobID, text string, autoSave bool) (string, error) {
-	facts, err := ae.extractFn(text)
+	res, err := ae.extractFn(text)
 	if err != nil {
 		ae.updateJob(jobID, "failed", nil, nil, err.Error())
 		return jobID, err
@@ -240,10 +240,11 @@ func (ae *AsyncExtractor) fallbackSyncExtract(jobID, text string, autoSave bool)
 
 	var keys []string
 	if autoSave {
-		keys = ae.storage.saveExtractedFacts(facts)
+		keys = ae.storage.saveExtractedFacts(res.Facts)
+		ae.storage.saveExtractedTriples(res.Triples)
 	}
 
-	ae.updateJob(jobID, "done", keys, facts, "")
+	ae.updateJob(jobID, "done", keys, res.Facts, "")
 	return jobID, nil
 }
 
@@ -279,7 +280,7 @@ func (ae *AsyncExtractor) worker() {
 		ae.updateJob(req.JobID, "running", nil, nil, "")
 		start := time.Now()
 
-		facts, err := ae.extractFn(req.Text)
+		res, err := ae.extractFn(req.Text)
 		elapsed := time.Since(start)
 
 		if err != nil {
@@ -290,13 +291,15 @@ func (ae *AsyncExtractor) worker() {
 		}
 
 		var keys []string
+		triples := 0
 		if req.AutoSave {
-			keys = ae.storage.saveExtractedFacts(facts)
+			keys = ae.storage.saveExtractedFacts(res.Facts)
+			triples = ae.storage.saveExtractedTriples(res.Triples)
 		}
 
-		log.Printf("  [async-extractor] extracted %d facts (job %s, elapsed %v, saved %d)",
-			len(facts), req.JobID, elapsed, len(keys))
-		ae.updateJob(req.JobID, "done", keys, facts, "")
+		log.Printf("  [async-extractor] extracted %d facts, %d triples (job %s, elapsed %v, saved %d)",
+			len(res.Facts), triples, req.JobID, elapsed, len(keys))
+		ae.updateJob(req.JobID, "done", keys, res.Facts, "")
 	}
 }
 

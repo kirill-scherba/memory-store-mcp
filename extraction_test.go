@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -13,8 +14,28 @@ func TestExtractSystemPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "fact extraction") {
 		t.Fatal("extractSystemPrompt() missing expected content")
 	}
-	if !strings.Contains(prompt, "JSON array") {
+	if !strings.Contains(prompt, "JSON object") {
 		t.Fatal("extractSystemPrompt() missing JSON mention")
+	}
+	if !strings.Contains(prompt, "triples") {
+		t.Fatal("extractSystemPrompt() missing graph triples instruction")
+	}
+}
+
+// TestSanitizeLLMJSON covers the artefacts small models emit: Markdown code
+// fences and trailing commas, both of which make the response invalid JSON.
+func TestSanitizeLLMJSON(t *testing.T) {
+	const raw = "```json\n{\n  \"facts\": [\n    {\"content\": \"x\"},\n  ],\n  \"triples\": []\n}\n```"
+	out := sanitizeLLMJSON(raw)
+	if strings.Contains(out, "```") {
+		t.Fatalf("code fence not stripped: %q", out)
+	}
+	var res ExtractResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("sanitized JSON is still invalid: %v\n%s", err, out)
+	}
+	if len(res.Facts) != 1 {
+		t.Fatalf("facts = %+v, want 1", res.Facts)
 	}
 }
 

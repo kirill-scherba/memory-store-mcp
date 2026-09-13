@@ -47,16 +47,17 @@ For MANUAL structured facts, prefer memory_save. Use memory_save after memory_ex
 			// the caller immediately sees the facts and decides whether to call
 			// memory_save to persist them.
 			if !autoSave {
-				facts, err := ExtractFacts(text)
+				res, err := ExtractFacts(text)
 				if err != nil {
 					return mcp.NewToolResultText(fmt.Sprintf("Error extracting facts: %v", err)), nil
 				}
 
 				result := map[string]any{
-					"status": "completed",
-					"facts":  facts,
+					"status":  "completed",
+					"facts":   res.Facts,
+					"triples": res.Triples,
 				}
-				if len(facts) == 0 {
+				if len(res.Facts) == 0 {
 					result["message"] = "No facts extracted. Nothing to save."
 				} else {
 					result["message"] = "Extraction completed. Use memory_save to persist facts if needed."
