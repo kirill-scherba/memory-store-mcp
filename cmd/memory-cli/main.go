@@ -55,7 +55,7 @@ Examples:
 	rootCmd.AddCommand(newDigCmd())
 	rootCmd.AddCommand(newSessionCmd())
 	rootCmd.AddCommand(newGraphCmd())
-	rootCmd.AddCommand(newMigrateVectorIndexCmd())
+	rootCmd.AddCommand(newRebuildIndexCmd())
 	rootCmd.AddCommand(newCompactCmd())
 
 	return rootCmd

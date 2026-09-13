@@ -24,7 +24,7 @@ func TestSubcommands(t *testing.T) {
 	expected := []string{
 		"save", "get", "delete", "search", "list",
 		"context", "extract", "goals", "timeline", "suggest",
-		"find", "dig", "session", "graph", "migrate-vector-index", "compact",
+		"find", "dig", "session", "graph", "rebuild-index", "compact",
 	}
 	names := make(map[string]bool)
 	for _, c := range cmd.Commands() {

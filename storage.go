@@ -19,7 +19,7 @@ import (
 
 	"github.com/kirill-scherba/keyvalembd"
 	"github.com/kirill-scherba/sqlh"
-	_ "github.com/tursodatabase/go-libsql"
+	_ "modernc.org/sqlite"
 )
 
 // ---------------------------------------------------------------------------
@@ -162,6 +162,10 @@ type Storage struct {
 	extractFn      func(string) ([]ExtractedFact, error)
 }
 
+// VectorIndexDir returns the default directory for the in-process vector index
+// belonging to a database path.
+func VectorIndexDir(dbPath string) string { return dbPath + "-idx" }
+
 // NewStorage creates a new Storage, initialising both the KV store and the
 // goals table in the same SQLite database.
 func NewStorage(dbPath string) (*Storage, error) {
@@ -172,10 +176,10 @@ func NewStorage(dbPath string) (*Storage, error) {
 
 	// Open a second connection for the goals table (same DB file)
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)",
 		dbPath,
 	)
-	goalsDB, err := sql.Open("libsql", dsn)
+	goalsDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		kv.Close()
 		return nil, fmt.Errorf("failed to open goals db: %w", err)
@@ -194,6 +198,10 @@ func NewStorage(dbPath string) (*Storage, error) {
 		goalsDB.Close()
 		return nil, fmt.Errorf("create timeline_events table: %w", err)
 	}
+
+	// Enable the in-process, memory-mapped vector index next to the database.
+	// It is a derived artefact: built lazily and rebuilt when the data changes.
+	kv.SetVectorIndexDir(VectorIndexDir(dbPath))
 
 	log.Printf("✅ storage ready at: %s", dbPath)
 	return &Storage{kv: kv, goals: goalsDB, dbPath: dbPath, extractFn: ExtractFacts}, nil
