@@ -277,6 +277,7 @@ func entitiesInText(db *sql.DB, text string, limit int) ([]GraphEntity, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
+	all := limit <= 0
 	if limit <= 0 {
 		limit = 5
 	}
@@ -321,7 +322,7 @@ func entitiesInText(db *sql.DB, text string, limit int) ([]GraphEntity, error) {
 		}
 		return matches[i].stem > matches[j].stem
 	})
-	if len(matches) > limit {
+	if !all && len(matches) > limit {
 		matches = matches[:limit]
 	}
 
@@ -445,6 +446,113 @@ func truncateNames(names []string, n int) []string {
 	out := append([]string{}, names[:n]...)
 	out = append(out, fmt.Sprintf("+%d more", len(names)-n))
 	return out
+}
+
+// extractImageEdges links a gallery image to the entities mentioned in its
+// metadata. The relation is a neutral "упоминает": the manual edges keep their
+// precise relations (фото_в, иллюстрация, сгенерировал), and this only adds the
+// ones nobody entered by hand.
+func (s *Storage) extractImageEdges(imageName, text string, maxEdges int) (int, error) {
+	imageName = strings.TrimSpace(imageName)
+	if imageName == "" || strings.TrimSpace(text) == "" {
+		return 0, nil
+	}
+
+	subjectID, err := resolveEntityID(s.goals, imageName, "image")
+	if err != nil {
+		return 0, err
+	}
+	entities, err := entitiesInText(s.goals, text, 0) // all matches
+	if err != nil {
+		return 0, err
+	}
+
+	// Skip entities the image is already connected to, by any relation.
+	existing, err := edgesForEntityID(s.goals, subjectID)
+	if err != nil {
+		return 0, err
+	}
+	have := make(map[string]struct{}, len(existing))
+	for _, e := range existing {
+		other := e.ToName
+		if e.FromName != imageName {
+			other = e.FromName
+		}
+		have[normalizeName(other)] = struct{}{}
+	}
+
+	added := 0
+	for _, e := range entities {
+		if e.ID == subjectID {
+			continue
+		}
+		if _, ok := have[e.NameKey]; ok {
+			continue
+		}
+		if err := addGraphEdge(s.goals, imageName, e.Name, "упоминает", "", "auto:gallery"); err != nil {
+			return added, err
+		}
+		added++
+		if maxEdges > 0 && added >= maxEdges {
+			break
+		}
+	}
+	return added, nil
+}
+
+// galleryMetaEntry is the value stored under memory/gallery/meta/<file>.
+type galleryMetaEntry struct {
+	Description string `json:"description"`
+	Tags        string `json:"tags"`
+	Prompt      string `json:"prompt"`
+}
+
+// backfillImageGraph links every gallery image to the entities mentioned in its
+// metadata. Idempotent: extractImageEdges skips entities already connected.
+func (s *Storage) backfillImageGraph() (int, error) {
+	const prefix = "memory/gallery/meta/"
+
+	rows, err := s.goals.Query(
+		`SELECT key FROM kv_data WHERE key LIKE ? ORDER BY key`, prefix+"%")
+	if err != nil {
+		return 0, fmt.Errorf("list gallery meta: %w", err)
+	}
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if !strings.HasSuffix(k, "/") {
+			keys = append(keys, k)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var total int
+	for _, key := range keys {
+		mv, err := s.Get(key)
+		if err != nil || mv == nil {
+			continue
+		}
+		// The value is a MemoryValue whose Content holds the metadata JSON.
+		var meta galleryMetaEntry
+		if err := json.Unmarshal([]byte(mv.Content), &meta); err != nil {
+			continue
+		}
+		imageName := strings.TrimPrefix(key, prefix)
+		text := meta.Description + " " + meta.Tags + " " + meta.Prompt
+		n, err := s.extractImageEdges(imageName, text, 10)
+		if err != nil {
+			return total, fmt.Errorf("image %s: %w", imageName, err)
+		}
+		total += n
+	}
+	return total, nil
 }
 
 // edgesAmong returns every edge whose two endpoints are both in ids.

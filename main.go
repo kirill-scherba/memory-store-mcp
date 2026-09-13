@@ -135,6 +135,14 @@ func main() {
 	// because the first pass can delete millions of rows.
 	SetTimelineRetention(*timelineRetentionFlag)
 	go func() {
+		// Derive the graph edges that can be computed without an LLM (gallery
+		// image metadata). Idempotent, so it is safe on every start.
+		if n, err := store.backfillImageGraph(); err != nil {
+			log.Printf("⚠ graph backfill: %v", err)
+		} else if n > 0 {
+			log.Printf("🕸 graph: backfilled %d image edges", n)
+		}
+
 		pruneTimeline(store)
 		ticker := time.NewTicker(6 * time.Hour)
 		defer ticker.Stop()

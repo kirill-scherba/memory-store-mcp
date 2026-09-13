@@ -472,6 +472,21 @@ func (s *Storage) saveWithKey(key string, value *MemoryValue, text string) (stri
 	log.Printf("⏱ memory_save: key=%s marshal=%v keyvalembd_set_with_embedding=%v total=%v",
 		key, marshalDur, setDur, time.Since(start))
 
+	// Auto-link gallery images to the entities their metadata mentions, so the
+	// graph keeps growing without anyone calling graph_add_edge.
+	if strings.HasPrefix(key, "memory/gallery/meta/") {
+		var meta galleryMetaEntry
+		if err := json.Unmarshal([]byte(value.Content), &meta); err == nil {
+			imageName := strings.TrimPrefix(key, "memory/gallery/meta/")
+			text := meta.Description + " " + meta.Tags + " " + meta.Prompt
+			if n, err := s.extractImageEdges(imageName, text, 10); err != nil {
+				log.Printf("⚠ graph: link image %s: %v", imageName, err)
+			} else if n > 0 {
+				log.Printf("🕸 graph: linked image %s to %d entities", imageName, n)
+			}
+		}
+	}
+
 	return key, nil
 }
 

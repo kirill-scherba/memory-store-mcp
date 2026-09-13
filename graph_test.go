@@ -305,3 +305,68 @@ func TestGraphContextInjection(t *testing.T) {
 		t.Fatalf("injection has no graph edge:\n%s", injection)
 	}
 }
+
+// TestExtractImageEdges covers the automatic image -> entity linking.
+func TestExtractImageEdges(t *testing.T) {
+	store := newTestStorage(t)
+
+	// An existing entity that the image metadata mentions.
+	if err := addGraphEdge(store.goals, "Сварня", "плесковица", "заказал", "2026-07-23", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	const text = "Верблюд в поварской шапке на ярмарке, Сварня, хинкали"
+	n, err := store.extractImageEdges("img_1.png", text, 10)
+	if err != nil {
+		t.Fatalf("extractImageEdges: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("no edges added")
+	}
+
+	// Idempotent: a second pass adds nothing.
+	if n, err := store.extractImageEdges("img_1.png", text, 10); err != nil || n != 0 {
+		t.Fatalf("second pass added %d edges (err=%v), want 0", n, err)
+	}
+
+	edges, err := edgesForEntity(store.goals, "img_1.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked := false
+	for _, e := range edges {
+		if e.FromName == "Сварня" || e.ToName == "Сварня" {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Fatalf("image not linked to Сварня: %+v", edges)
+	}
+}
+
+// TestBackfillImageGraph walks stored gallery metadata and derives edges.
+func TestBackfillImageGraph(t *testing.T) {
+	store := newTestStorage(t)
+
+	if err := addGraphEdge(store.goals, "Сварня", "плесковица", "заказал", "2026-07-23", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	val, err := json.Marshal(MemoryValue{
+		Content: `{"description":"Верблюд на ярмарке, Сварня","tags":"сварня,верблюд"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.kv.Set("memory/gallery/meta/img_9.png", val); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := store.backfillImageGraph()
+	if err != nil {
+		t.Fatalf("backfillImageGraph: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("backfill added no edges")
+	}
+}
