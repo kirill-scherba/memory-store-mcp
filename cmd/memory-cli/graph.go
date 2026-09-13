@@ -11,7 +11,7 @@ import (
 )
 
 func newGraphCmd() *cobra.Command {
-	var serverURL string
+	var dbPath, serverURL string
 
 	cmd := &cobra.Command{
 		Use:   "graph",
@@ -28,7 +28,7 @@ func newGraphCmd() *cobra.Command {
   memory-cli graph query "Кирилл" --depth 3`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := newMemoryClient("", "", serverURL)
+			client, err := newMemoryClient(dbPath, "", serverURL)
 			if err != nil {
 				return fmt.Errorf("create client: %w", err)
 			}
@@ -47,6 +47,7 @@ func newGraphCmd() *cobra.Command {
 			return nil
 		},
 	}
+	queryCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
 	queryCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
 	queryCmd.Flags().IntVar(&depth, "depth", 2, "Maximum traversal depth")
 	queryCmd.Flags().IntVar(&limit, "limit", 500, "Maximum number of edges")
@@ -62,7 +63,7 @@ func newGraphCmd() *cobra.Command {
 			if from == "" || to == "" || relation == "" {
 				return fmt.Errorf("--from, --to, and --relation are required")
 			}
-			client, err := newMemoryClient("", "", serverURL)
+			client, err := newMemoryClient(dbPath, "", serverURL)
 			if err != nil {
 				return fmt.Errorf("create client: %w", err)
 			}
@@ -84,6 +85,7 @@ func newGraphCmd() *cobra.Command {
 			return nil
 		},
 	}
+	addCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
 	addCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
 	addCmd.Flags().StringVar(&from, "from", "", "Source entity")
 	addCmd.Flags().StringVar(&to, "to", "", "Target entity")
@@ -98,7 +100,7 @@ func newGraphCmd() *cobra.Command {
 		Example: `  memory-cli graph get-edges Сварня`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := newMemoryClient("", "", serverURL)
+			client, err := newMemoryClient(dbPath, "", serverURL)
 			if err != nil {
 				return fmt.Errorf("create client: %w", err)
 			}
@@ -115,6 +117,7 @@ func newGraphCmd() *cobra.Command {
 			return nil
 		},
 	}
+	getEdgesCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
 	getEdgesCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
 
 	cmd.AddCommand(queryCmd)
