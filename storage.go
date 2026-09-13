@@ -53,6 +53,80 @@ type Goal struct {
 	UpdatedAt   int64    `json:"updated_at"`
 }
 
+// columnDeclType returns the declared type of a column, or "" when the table or
+// column does not exist.
+func columnDeclType(db *sql.DB, table, column string) (string, error) {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%q)", table))
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notNull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+			return "", err
+		}
+		if name == column {
+			return ctype, nil
+		}
+	}
+	return "", rows.Err()
+}
+
+// renameLegacyGoalsTable renames the goals table when its timestamp columns are
+// declared TEXT.
+//
+// sqlh derives the column type from the Go field, so time.Time produces
+// "timestamp". The sqlite driver returns time.Time only for columns declared as
+// a time type; a legacy TEXT column comes back as a string and every goal read
+// fails with "unsupported Scan, storing driver.Value type string into type
+// *time.Time". Renaming lets sqlh.Create recreate the table with the right
+// types; the caller copies the rows and drops the legacy table.
+//
+// It returns the legacy table name, or "" when no migration is needed.
+func renameLegacyGoalsTable(db *sql.DB) (string, error) {
+	typ, err := columnDeclType(db, "goals", "created_at")
+	if err != nil {
+		return "", fmt.Errorf("inspect goals: %w", err)
+	}
+	if typ == "" || strings.Contains(strings.ToLower(typ), "time") {
+		return "", nil // no table yet, or already a time type
+	}
+
+	const legacy = "goals_legacy"
+	if _, err := db.Exec(`DROP TABLE IF EXISTS ` + legacy); err != nil {
+		return "", fmt.Errorf("drop stale %s: %w", legacy, err)
+	}
+	if _, err := db.Exec(`ALTER TABLE goals RENAME TO ` + legacy); err != nil {
+		return "", fmt.Errorf("rename goals: %w", err)
+	}
+	log.Printf("🧱 migrating goals timestamps (%s -> timestamp)", typ)
+	return legacy, nil
+}
+
+// restoreLegacyGoals copies rows from the legacy goals table into the newly
+// created one and drops it.
+func restoreLegacyGoals(db *sql.DB, legacy string) error {
+	cols := `id, title, description, status, labels, priority, progress, deadline, created_at, updated_at`
+	if _, err := db.Exec(
+		`INSERT INTO goals (` + cols + `) SELECT ` + cols + ` FROM ` + legacy,
+	); err != nil {
+		return fmt.Errorf("copy legacy goals: %w", err)
+	}
+	if _, err := db.Exec(`DROP TABLE ` + legacy); err != nil {
+		return fmt.Errorf("drop %s: %w", legacy, err)
+	}
+	log.Printf("✅ goals timestamps migrated")
+	return nil
+}
+
 // goalRow is the internal database representation for sqlh.
 type goalRow struct {
 	ID          string    `db:"id" db_key:"primary key"`
@@ -186,6 +260,13 @@ func NewStorage(dbPath string) (*Storage, error) {
 	}
 
 	// Create goals table via sqlh
+	// Rebuild the goals table if its timestamp columns are legacy TEXT.
+	legacyGoals, err := renameLegacyGoalsTable(goalsDB)
+	if err != nil {
+		kv.Close()
+		goalsDB.Close()
+		return nil, err
+	}
 	if err := sqlh.Create[goalRow](goalsDB); err != nil {
 		kv.Close()
 		goalsDB.Close()
@@ -193,6 +274,14 @@ func NewStorage(dbPath string) (*Storage, error) {
 	}
 
 	// Create timeline_events table for usage tracking
+	if legacyGoals != "" {
+		if err := restoreLegacyGoals(goalsDB, legacyGoals); err != nil {
+			kv.Close()
+			goalsDB.Close()
+			return nil, err
+		}
+	}
+
 	if err := sqlh.Create[TimelineEvent](goalsDB); err != nil {
 		kv.Close()
 		goalsDB.Close()
