@@ -400,3 +400,29 @@ func TestSaveExtractedTriples(t *testing.T) {
 		t.Fatalf("unexpected edges: %+v", found)
 	}
 }
+
+// TestGraphContextHidesImageMentions: auto-derived "image mentions X" edges are
+// useful in the gallery but must not drown the real relations in injected
+// context.
+func TestGraphContextHidesImageMentions(t *testing.T) {
+	store := newTestStorage(t)
+
+	if err := addGraphEdge(store.goals, "Барон", "Тибет", "был_в", "2026-07-01", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := addGraphEdge(store.goals, "img_1.png", "Барон", autoMentionRelation, "", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := store.graphContextForText("Барон", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := formatGraphContext(items)
+	if !strings.Contains(section, "был_в") {
+		t.Fatalf("real relation missing from context:\n%s", section)
+	}
+	if strings.Contains(section, "img_1.png") {
+		t.Fatalf("image mention leaked into context:\n%s", section)
+	}
+}

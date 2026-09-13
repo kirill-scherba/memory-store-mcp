@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -55,8 +56,12 @@ type GraphEdge struct {
 // GraphEdgeRow is a joined view of an edge with both entity names. The JSON
 // tags keep the field names the consumers (the gallery) already expect.
 type GraphEdgeRow struct {
-	FromName   string  `db:"from_name" json:"from"`
-	ToName     string  `db:"to_name" json:"to"`
+	FromName string `db:"from_name" json:"from"`
+	ToName   string `db:"to_name" json:"to"`
+	// Entity types are used internally (to filter low-signal relations) and are
+	// deliberately not serialised: the gallery contract is from/to/relation/date.
+	FromType   string  `db:"from_type" json:"-"`
+	ToType     string  `db:"to_type" json:"-"`
 	Relation   string  `db:"relation" json:"relation"`
 	Date       string  `db:"date" json:"date"`
 	Source     string  `db:"source" json:"source,omitempty"`
@@ -181,6 +186,7 @@ func edgesForEntity(db *sql.DB, name string) ([]GraphEdgeRow, error) {
 	// table-composite structs rather than flat result rows.
 	const query = `
 		SELECT f.name AS from_name, t.name AS to_name,
+		       f.type AS from_type, t.type AS to_type,
 		       e.relation, e.date, e.source, e.confidence
 		FROM graph_edges e
 		JOIN graph_entities f ON f.id = e.from_id
@@ -198,8 +204,8 @@ func edgesForEntity(db *sql.DB, name string) ([]GraphEdgeRow, error) {
 	var out []GraphEdgeRow
 	for rows.Next() {
 		var r GraphEdgeRow
-		if err := rows.Scan(&r.FromName, &r.ToName, &r.Relation,
-			&r.Date, &r.Source, &r.Confidence); err != nil {
+		if err := rows.Scan(&r.FromName, &r.ToName, &r.FromType, &r.ToType,
+			&r.Relation, &r.Date, &r.Source, &r.Confidence); err != nil {
 			return nil, fmt.Errorf("scan edge: %w", err)
 		}
 		out = append(out, r)
@@ -223,6 +229,7 @@ func edgesForEntityID(db *sql.DB, id int64) ([]GraphEdgeRow, error) {
 	// Raw SQL with rows.Scan: custom SELECT with joins (see edgesForEntity).
 	const query = `
 		SELECT f.name AS from_name, t.name AS to_name,
+		       f.type AS from_type, t.type AS to_type,
 		       e.relation, e.date, e.source, e.confidence
 		FROM graph_edges e
 		JOIN graph_entities f ON f.id = e.from_id
@@ -239,8 +246,8 @@ func edgesForEntityID(db *sql.DB, id int64) ([]GraphEdgeRow, error) {
 	var out []GraphEdgeRow
 	for rows.Next() {
 		var r GraphEdgeRow
-		if err := rows.Scan(&r.FromName, &r.ToName, &r.Relation,
-			&r.Date, &r.Source, &r.Confidence); err != nil {
+		if err := rows.Scan(&r.FromName, &r.ToName, &r.FromType, &r.ToType,
+			&r.Relation, &r.Date, &r.Source, &r.Confidence); err != nil {
 			return nil, fmt.Errorf("scan edge: %w", err)
 		}
 		out = append(out, r)
@@ -356,6 +363,24 @@ func (s *Storage) graphContextForText(text string, maxEntities int) ([]GraphCont
 	return items, nil
 }
 
+// autoMentionRelation is the relation used for automatically derived links from
+// image metadata; imageEntityPrefix marks image entity names.
+const (
+	autoMentionRelation = "упоминает"
+	imageEntityType     = "image"
+)
+
+// looksLikeMedia reports whether an entity name looks like a media file. Some
+// image entities predate the "image" type (legacy migration stored them with an
+// empty type), so the name is a useful second signal.
+func looksLikeMedia(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".wav", ".mp3", ".mp4":
+		return true
+	}
+	return false
+}
+
 // graphContextLimit caps how much graph detail is injected.
 const (
 	graphContextEntities     = 5
@@ -397,6 +422,19 @@ func formatGraphContext(items []GraphContextItem) string {
 				k = key{e.Relation, false}
 				other = e.FromName
 			}
+
+			// "Image X mentions entity Y" is useful in the gallery but is noise
+			// in injected context: a well-known entity is mentioned by dozens of
+			// images and that would drown its real relations.
+			otherType := e.ToType
+			if !outgoing {
+				otherType = e.FromType
+			}
+			if k.relation == autoMentionRelation &&
+				(otherType == imageEntityType || looksLikeMedia(other)) {
+				continue
+			}
+
 			if _, ok := seen[k]; !ok {
 				order = append(order, k)
 			}
@@ -458,7 +496,7 @@ func (s *Storage) extractImageEdges(imageName, text string, maxEdges int) (int, 
 		return 0, nil
 	}
 
-	subjectID, err := resolveEntityID(s.goals, imageName, "image")
+	subjectID, err := resolveEntityID(s.goals, imageName, imageEntityType)
 	if err != nil {
 		return 0, err
 	}
@@ -489,7 +527,7 @@ func (s *Storage) extractImageEdges(imageName, text string, maxEdges int) (int, 
 		if _, ok := have[e.NameKey]; ok {
 			continue
 		}
-		if err := addGraphEdge(s.goals, imageName, e.Name, "упоминает", "", "auto:gallery"); err != nil {
+		if err := addGraphEdge(s.goals, imageName, e.Name, autoMentionRelation, "", "auto:gallery"); err != nil {
 			return added, err
 		}
 		added++
@@ -592,6 +630,7 @@ func edgesAmong(db *sql.DB, ids []int64) ([]GraphEdgeRow, error) {
 	// Raw SQL with rows.Scan: custom SELECT with joins (see edgesForEntity).
 	query := `
 		SELECT f.name AS from_name, t.name AS to_name,
+		       f.type AS from_type, t.type AS to_type,
 		       e.relation, e.date, e.source, e.confidence
 		FROM graph_edges e
 		JOIN graph_entities f ON f.id = e.from_id
@@ -609,8 +648,8 @@ func edgesAmong(db *sql.DB, ids []int64) ([]GraphEdgeRow, error) {
 	var out []GraphEdgeRow
 	for rows.Next() {
 		var r GraphEdgeRow
-		if err := rows.Scan(&r.FromName, &r.ToName, &r.Relation,
-			&r.Date, &r.Source, &r.Confidence); err != nil {
+		if err := rows.Scan(&r.FromName, &r.ToName, &r.FromType, &r.ToType,
+			&r.Relation, &r.Date, &r.Source, &r.Confidence); err != nil {
 			return nil, fmt.Errorf("scan edge: %w", err)
 		}
 		out = append(out, r)
