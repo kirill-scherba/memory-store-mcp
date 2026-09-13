@@ -239,3 +239,69 @@ func TestMigrateLegacyGraph(t *testing.T) {
 }
 
 var _ = sql.ErrNoRows
+
+// TestGraphContextForText covers entity detection in free text and the
+// compact rendering used for context injection.
+func TestGraphContextForText(t *testing.T) {
+	store := newTestStorage(t)
+
+	for _, e := range []struct{ from, to, rel string }{
+		{"Сварня", "плесковица", "заказал"},
+		{"Кирилл", "Сварня", "был_в"},
+		{"Барон", "Сварня", "был_в"},
+	} {
+		if err := addGraphEdge(store.goals, e.from, e.to, e.rel, "2026-07-23", "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	items, err := store.graphContextForText("сегодня были в Сварне и заказали плесковицу", 5)
+	if err != nil {
+		t.Fatalf("graphContextForText: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("no entities detected in text")
+	}
+	if items[0].Entity != "Сварня" {
+		t.Fatalf("first entity = %q, want Сварня (longest match first)", items[0].Entity)
+	}
+
+	section := formatGraphContext(items)
+	for _, want := range []string{"Graph context", "Сварня", "заказал", "плесковица", "Кирилл"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("graph section missing %q:\n%s", want, section)
+		}
+	}
+	t.Logf("graph section:\n%s", section)
+
+	// No entities in the text -> no section.
+	if items, _ := store.graphContextForText("совершенно посторонний текст", 5); len(items) != 0 {
+		t.Fatalf("unexpected entities: %+v", items)
+	}
+}
+
+// TestGraphContextInjection verifies the graph reaches memory_get_context
+// without the agent calling any graph tool.
+func TestGraphContextInjection(t *testing.T) {
+	store := newTestStorage(t)
+
+	if err := addGraphEdge(store.goals, "Сварня", "плесковица", "заказал", "2026-07-23", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Save("memory/test/svarnya",
+		&MemoryValue{Content: "Были в Сварне, заказали плесковицу"},
+		"Сварня вечер, заказали плесковицу", false); err != nil {
+		t.Fatal(err)
+	}
+
+	injection, err := store.GetContextForInjection("Сварня", 5)
+	if err != nil {
+		t.Fatalf("GetContextForInjection: %v", err)
+	}
+	if !strings.Contains(injection, "Graph context") {
+		t.Fatalf("injection has no graph section:\n%s", injection)
+	}
+	if !strings.Contains(injection, "плесковица") {
+		t.Fatalf("injection has no graph edge:\n%s", injection)
+	}
+}

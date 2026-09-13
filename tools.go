@@ -329,6 +329,16 @@ For session overview / "what do we have", prefer memory_get_context.`),
 			}
 
 			resultJSON, _ := json.MarshalIndent(enriched, "", "  ")
+
+			// Append the graph connections of entities mentioned in the query
+			// and in the results, so relationships surface without a separate
+			// graph_query call.
+			if items, err := s.graphContextForText(query, graphContextEntities); err == nil {
+				if section := formatGraphContext(items); section != "" {
+					resultJSON = append(resultJSON, []byte("\n\n"+section)...)
+				}
+			}
+
 			return mcp.NewToolResultText(string(resultJSON)), nil
 		},
 	}

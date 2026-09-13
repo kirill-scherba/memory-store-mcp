@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -207,6 +208,243 @@ func edgesForEntity(db *sql.DB, name string) ([]GraphEdgeRow, error) {
 		return nil, fmt.Errorf("iterate edges for %q: %w", name, err)
 	}
 	return out, nil
+}
+
+// GraphContextItem is one entity with its immediate connections, ready to be
+// injected into the agent's context.
+type GraphContextItem struct {
+	Entity string         `json:"entity"`
+	Type   string         `json:"type,omitempty"`
+	Edges  []GraphEdgeRow `json:"edges"`
+}
+
+// edgesForEntityID returns every edge touching the entity with the given id.
+func edgesForEntityID(db *sql.DB, id int64) ([]GraphEdgeRow, error) {
+	// Raw SQL with rows.Scan: custom SELECT with joins (see edgesForEntity).
+	const query = `
+		SELECT f.name AS from_name, t.name AS to_name,
+		       e.relation, e.date, e.source, e.confidence
+		FROM graph_edges e
+		JOIN graph_entities f ON f.id = e.from_id
+		JOIN graph_entities t ON t.id = e.to_id
+		WHERE e.from_id = ? OR e.to_id = ?
+		ORDER BY e.date DESC, e.id DESC`
+
+	rows, err := db.Query(query, id, id)
+	if err != nil {
+		return nil, fmt.Errorf("query edges for entity %d: %w", id, err)
+	}
+	defer rows.Close()
+
+	var out []GraphEdgeRow
+	for rows.Next() {
+		var r GraphEdgeRow
+		if err := rows.Scan(&r.FromName, &r.ToName, &r.Relation,
+			&r.Date, &r.Source, &r.Confidence); err != nil {
+			return nil, fmt.Errorf("scan edge: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate edges for entity %d: %w", id, err)
+	}
+	return out, nil
+}
+
+// entityStems returns the forms of an entity name to look for in free text.
+// Russian inflects the ending ("Сварня" -> "в Сварне"), so for names long
+// enough to stay specific the last one or two characters are also tried.
+func entityStems(nameKey string) []string {
+	r := []rune(nameKey)
+	out := []string{nameKey}
+	if len(r) >= 6 {
+		out = append(out, string(r[:len(r)-1]))
+	}
+	if len(r) >= 8 {
+		out = append(out, string(r[:len(r)-2]))
+	}
+	return out
+}
+
+// entitiesInText returns the entities whose name appears in text, in any
+// common inflection. The comparison is case-folded in Go because SQLite's
+// lower() only folds ASCII.
+//
+// The whole entity table is read and matched in Go: it is small (hundreds of
+// rows), and matching stems cannot be expressed as an index seek anyway. If it
+// ever grows into the tens of thousands this should become an FTS index.
+func entitiesInText(db *sql.DB, text string, limit int) ([]GraphEntity, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	haystack := normalizeName(text)
+
+	rows, err := db.Query(`SELECT id, name, name_key, type, aliases FROM graph_entities`)
+	if err != nil {
+		return nil, fmt.Errorf("list entities: %w", err)
+	}
+	defer rows.Close()
+
+	type match struct {
+		entity GraphEntity
+		at     int // first occurrence in the text
+		stem   int // matched stem length, for tie-breaking
+	}
+	var matches []match
+	for rows.Next() {
+		var e GraphEntity
+		if err := rows.Scan(&e.ID, &e.Name, &e.NameKey, &e.Type, &e.Aliases); err != nil {
+			return nil, fmt.Errorf("scan entity: %w", err)
+		}
+		for _, stem := range entityStems(e.NameKey) {
+			if len([]rune(stem)) < 3 {
+				continue
+			}
+			if at := strings.Index(haystack, stem); at >= 0 {
+				matches = append(matches, match{entity: e, at: at, stem: len([]rune(stem))})
+				break
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Order by where the entity first appears; at the same position prefer the
+	// longer match, so "кошелёк Барона" beats "Барон".
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].at != matches[j].at {
+			return matches[i].at < matches[j].at
+		}
+		return matches[i].stem > matches[j].stem
+	})
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	out := make([]GraphEntity, len(matches))
+	for i, m := range matches {
+		out[i] = m.entity
+	}
+	return out, nil
+}
+
+// graphContextForText finds the entities mentioned in text and returns them
+// with their immediate connections. This is the consumption half of the graph:
+// the agent gets the connections without having to remember to ask for them.
+func (s *Storage) graphContextForText(text string, maxEntities int) ([]GraphContextItem, error) {
+	entities, err := entitiesInText(s.goals, text, maxEntities)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]GraphContextItem, 0, len(entities))
+	for _, e := range entities {
+		edges, err := edgesForEntityID(s.goals, e.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(edges) == 0 {
+			continue
+		}
+		items = append(items, GraphContextItem{Entity: e.Name, Type: e.Type, Edges: edges})
+	}
+	return items, nil
+}
+
+// graphContextLimit caps how much graph detail is injected.
+const (
+	graphContextEntities     = 5
+	graphContextGroups       = 6
+	graphContextNamesPerLine = 8
+)
+
+// formatGraphContext renders graph items compactly for context injection.
+func formatGraphContext(items []GraphContextItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+
+	var parts []string
+	parts = append(parts, "=== Graph context ===")
+
+	for _, item := range items {
+		header := item.Entity
+		if item.Type != "" {
+			header += " (" + item.Type + ")"
+		}
+		parts = append(parts, header)
+
+		// Group by relation and direction, preserving first-seen order.
+		type key struct {
+			relation  string
+			outgoing  bool
+		}
+		order := make([]key, 0, 8)
+		seen := make(map[key][]string)
+		for _, e := range item.Edges {
+			outgoing := e.FromName == item.Entity
+			var k key
+			var other string
+			if outgoing {
+				k = key{e.Relation, true}
+				other = e.ToName
+			} else {
+				k = key{e.Relation, false}
+				other = e.FromName
+			}
+			if _, ok := seen[k]; !ok {
+				order = append(order, k)
+			}
+			seen[k] = append(seen[k], other)
+		}
+
+		shown := 0
+		for _, k := range order {
+			if shown >= graphContextGroups {
+				parts = append(parts, fmt.Sprintf("  ... and %d more relations", len(order)-shown))
+				break
+			}
+			names := dedupeStrings(seen[k])
+			arrow := "→"
+			if !k.outgoing {
+				arrow = "←"
+			}
+			line := fmt.Sprintf("  %s %s %s", k.relation, arrow,
+				strings.Join(truncateNames(names, graphContextNamesPerLine), ", "))
+			parts = append(parts, line)
+			shown++
+		}
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// dedupeStrings removes duplicates, preserving order.
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// truncateNames keeps at most n names, adding a summary of the rest.
+func truncateNames(names []string, n int) []string {
+	if len(names) <= n {
+		return names
+	}
+	out := append([]string{}, names[:n]...)
+	out = append(out, fmt.Sprintf("+%d more", len(names)-n))
+	return out
 }
 
 // edgesAmong returns every edge whose two endpoints are both in ids.

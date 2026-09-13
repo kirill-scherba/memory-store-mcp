@@ -184,6 +184,25 @@ func (s *Storage) GetContextForInjection(query string, limit int) (string, error
 		}
 	}
 
+	// Graph context: entities mentioned in the query and in the retrieved
+	// memories, with their immediate connections. Injected automatically — the
+	// graph is useless if the agent has to remember to query it.
+	var graphText strings.Builder
+	graphText.WriteString(query)
+	for _, mem := range ctx.Memories {
+		graphText.WriteString(" ")
+		graphText.WriteString(mem.Value.Content)
+		graphText.WriteString(" ")
+		graphText.WriteString(mem.Value.Summary)
+		graphText.WriteString(" ")
+		graphText.WriteString(strings.Join(mem.Value.Tags, " "))
+	}
+	if items, err := s.graphContextForText(graphText.String(), graphContextEntities); err == nil {
+		if section := formatGraphContext(items); section != "" {
+			parts = append(parts, "\n"+section)
+		}
+	}
+
 	if len(ctx.Goals) > 0 {
 		parts = append(parts, "\n=== Active goals ===")
 		for i, g := range ctx.Goals {
