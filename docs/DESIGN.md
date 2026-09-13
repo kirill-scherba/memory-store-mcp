@@ -306,7 +306,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 | `dig` | Deep contextual search with time-window scenes |
 | `session` | Manage AI session state (save/get/list/compact) |
 | `graph` | Knowledge graph operations (get edges, query) |
-| `migrate-vector-index` | Add and build the native libSQL vector index (idempotent; also repairs unindexed rows) |
+| `rebuild-index` | Force a rebuild of the in-process memory-mapped vector index |
 | `compact` | Drop the legacy embedding column and VACUUM the database |
 
 ## Telegram Bot (Optional)
@@ -508,29 +508,22 @@ To minimise latency for voice/Alice interactions, `memory_save` can return immed
 ## Similarity Search
 
 Search is delegated to `keyvalembd.SearchSemantic` / `SearchByEmbedding`, which
-selects one of two strategies:
+uses one of two strategies:
 
-- **Native libSQL vector index (DiskANN)** — used when the database has been
-  migrated (`memory-cli migrate-vector-index`) and the collection holds at
-  least 1500 embeddings. Candidates come from `vector_top_k()` and are then
-  re-ranked by exact cosine distance. The index is maintained automatically by
-  libSQL on INSERT/UPDATE/DELETE, so the write path only has to keep the
-  `embedding_vec` column populated.
-- **Exact cosine scan** — every stored embedding is fetched and compared in Go:
+- **In-process memory-mapped index (default).** `NewStorage` enables it at
+  `<db>-idx`. Vectors are written to a compact file (~3 KB per 768-dim vector)
+  and queries are answered by an exact cosine scan over it: no database reads,
+  no heap-resident collection, 100% recall. Built lazily, rebuilt whenever the
+  data changes.
+- **Database scan (fallback).** Without an index directory, every embedding is
+  fetched and compared in Go. Exact but O(N) with a read per query.
 
-  ```go
-  cosineSimilarity(a, b) = dot(a,b) / (|a| * |b|)
-  ```
+Measured on the production database (6848 vectors, 768-dim): 5.1 ms per query
+from the index versus 124 ms for the scan; the index takes 74 ms to build and
+20.4 MB on disk.
 
-  Exact (100% recall) but O(N). Used for small collections or when the index is
-  unavailable.
-
-Measured on the production database (6845 vectors, 768-dim) on 2026-09-13:
-**22 ms** per query with the index versus **124 ms** for the exact scan;
-recall@1 and recall@5 100%, recall@10 ~98%.
-
-See [keyvalembd DESIGN.md](https://github.com/kirill-scherba/keyvalembd/blob/main/docs/DESIGN.md)
-for the migration and re-ranking details.
+This replaced the libSQL DiskANN index, which needed 118 s to build, occupied
+1050 MB and answered in 22 ms at ~98% recall.
 
 ## Graceful Degradation
 

@@ -8,14 +8,14 @@ memory-store-mcp is an MCP (Model Context Protocol) server that provides **persi
 
 AI assistants typically have no memory across sessions. Each conversation starts from scratch. This server gives AI assistants a persistent memory store that:
 
-1. **Survives sessions** — stored in libSQL database on disk
+1. **Survives sessions** — stored in a SQLite database on disk
 2. **Finds by meaning** — semantic search via Ollama embeddings (not just keyword matching)
 3. **Stays organized** — hierarchical S3-style keys for navigation
 
 ## Key Features
 
-- **Persistent key-value storage** — backed by libSQL (SQLite-compatible) with WAL mode
-- **Semantic search** — vector similarity via Ollama embeddings (embeddinggemma:latest); uses the native libSQL vector index (DiskANN) once the collection exceeds the configured threshold, falling back to the exact cosine scan otherwise
+- **Persistent key-value storage** — backed by pure-Go SQLite (modernc.org/sqlite) with WAL mode and foreign keys; builds with `CGO_ENABLED=0`
+- **Semantic search** — vector similarity via Ollama embeddings (embeddinggemma:latest); answered from an in-process, memory-mapped exact index (`<db>-idx`, ~3 KB/vector), falling back to a database scan when no index is configured
 - **Hierarchical keys** — S3-style: `memory/project/...`, `memory/user/...`, `memory/technical/...`
 - **Structured values** — JSON with content, summary, tags, timestamp, source
 - **MCP protocol** — JSON-RPC 2.0 over stdin/stdout or HTTP/SSE, 19 tools, 5 resources
@@ -24,7 +24,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Fact extraction** — auto-extract structured facts from conversation via LLM; background AsyncExtractor prevents timeouts when auto_save is true
 - **Proactive suggestions** — LLM-powered next-action recommendations
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
-- **CLI client** — 16 subcommands with formatted output (json/table/summary), including `migrate-vector-index` (native vector index) and `compact` (drop legacy column + VACUUM)
+- **CLI client** — 16 subcommands with formatted output (json/table/summary), including `rebuild-index` (in-process vector index) and `compact` (drop legacy column + VACUUM)
 - **Multi-language suggest** — en/ru support for suggestion prompts, configurable via Telegram user language preference
 - **Default model**: `phi4-mini` (switched from `qwen2.5-coder:7b` on 2026-07-13 after comparative testing — phi4-mini is faster on short texts, equal on long texts, already loaded by RAG, uses less RAM). `qwen2.5-coder:7b` available via `--extract-model` / `--chat-model` flags
 - **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--save-timeout`)
@@ -47,7 +47,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 ## Dependencies
 
 - **Go 1.26+** — build and runtime
-- **github.com/kirill-scherba/keyvalembd** — S3-like key-value store with embeddings (libSQL + Ollama)
+- **github.com/kirill-scherba/keyvalembd** — S3-like key-value store with embeddings (pure-Go SQLite + Ollama)
 - **github.com/mark3labs/mcp-go** — MCP library for Go
 - **Ollama** — embedding model (optional, for semantic search)
 - **github.com/go-telegram/bot** — Telegram bot framework (optional)
