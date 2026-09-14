@@ -232,18 +232,18 @@ func formatSuggest(raw string, format OutputFormat) string {
 
 	switch format {
 	case OutputTable:
+		// A suggestion carries a full sentence in its description, so a table
+		// with fixed column widths chopped it into fragments ("Подтвердите, что
+		// у тебя есть все необходимые обновления без…"). Render one block per
+		// suggestion instead.
 		var b strings.Builder
-		w := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "TYPE\tTITLE\tPRIORITY\tDESCRIPTION")
-		fmt.Fprintln(w, "----\t-----\t--------\t-----------")
-		for _, r := range rows {
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
-				truncate(r.Type, 12),
-				truncate(r.Title, 28),
-				r.Priority,
-				truncate(r.Description, 60))
+		for i, r := range rows {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, r.Type, r.Title)
+			fmt.Fprintf(&b, "   priority %d — %s\n", r.Priority, r.Description)
 		}
-		w.Flush()
 		return b.String()
 	case OutputSummary:
 		var lines []string

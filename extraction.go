@@ -79,6 +79,56 @@ var (
 	commaInString = regexp.MustCompile(`([:,])"([^"]*),"(description|title|type|summary|content|priority)"`)
 )
 
+// fixUnescapedQuotes escapes double quotes that appear inside a JSON string
+// value without being escaped, for example:
+//
+//	"description":"Обсудите внедрение "smart search" в платформу"
+//
+// A quote inside a string is a closing quote only when the next non-space
+// character is a JSON delimiter (, } ] or :). Anything else is content.
+func fixUnescapedQuotes(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+
+	inString := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+
+		// Copy escape sequences verbatim.
+		if c == '\\' && inString && i+1 < len(s) {
+			b.WriteByte(c)
+			i++
+			b.WriteByte(s[i])
+			continue
+		}
+
+		if c != '"' {
+			b.WriteByte(c)
+			continue
+		}
+
+		if !inString {
+			inString = true
+			b.WriteByte(c)
+			continue
+		}
+
+		j := i + 1
+		for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+			j++
+		}
+		if j >= len(s) || s[j] == ',' || s[j] == '}' || s[j] == ']' || s[j] == ':' {
+			inString = false
+			b.WriteByte(c)
+			continue
+		}
+
+		// An unescaped quote inside a string: escape it.
+		b.WriteString(`\"`)
+	}
+	return b.String()
+}
+
 // sanitizeLLMJSON repairs what small models emit around otherwise valid JSON:
 // Markdown code fences, "key=value" instead of "key":"value", a comma that
 // slipped inside a string, and trailing commas before a closing bracket.
@@ -97,9 +147,13 @@ func sanitizeLLMJSON(s string) string {
 		s = strings.TrimSuffix(strings.TrimSpace(s), "```")
 	}
 
+	// Order matters. commaInString must run before fixUnescapedQuotes: the
+	// broken "value,"key" pattern would otherwise be read as an unescaped quote
+	// inside a string, swallowing the key into the value.
 	s = equalsQuoted.ReplaceAllString(s, `"$1":"$2"`)
 	s = equalsBare.ReplaceAllString(s, `"$1":"$2"`)
 	s = commaInString.ReplaceAllString(s, `$1"$2","$3"`)
+	s = fixUnescapedQuotes(s)
 	s = trailingComma.ReplaceAllString(s, "$1")
 	return strings.TrimSpace(s)
 }
@@ -174,7 +228,7 @@ func suggestSystemPrompt(lang string) string {
 	// data-only user prompt can never cut them off.
 	var additional string
 	if lang == "ru" {
-		additional = "\n\nLANGUAGE: write every title and description in RUSSIAN."
+		additional = "\n\nLANGUAGE: write BOTH the title and the description in RUSSIAN. Never mix languages."
 	}
 
 	return `You are a proactive assistant. You are given the user's recent activity and their active goals. Propose concrete next actions.
@@ -185,7 +239,8 @@ RULES:
 3. If the recent activity relates to no goal, pick the goal with the nearest deadline or the one whose progress has stalled, and state what to do about it today.
 4. Never invent facts, events, people, reminders or deadlines that are not in the input.
 5. priority is an integer 0-10: 0-3 someday, 4-6 this week, 7-8 today, 9-10 urgent or blocking. Most suggestions belong in 4-7; reserve 9-10 for a real deadline or a blocker.
-6. Return at most the requested number of suggestions. Fewer specific ones beat more generic ones.
+6. Write the title and the description in the same language, and phrase the suggestion as an action for the user ("Reply to...", "Pay..."), not as a reference to a file or a key.
+7. Return at most the requested number of suggestions. Fewer specific ones beat more generic ones.
 
 Return ONLY a JSON array of suggestion objects, each with:
 - type: one of "reminder", "followup", "goal_next_step", "insight"

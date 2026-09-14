@@ -146,3 +146,24 @@ func TestSanitizeLLMJSONKeepsValidJSON(t *testing.T) {
 		t.Fatalf("valid JSON was modified:\n in: %s\nout: %s", valid, out)
 	}
 }
+
+// TestSanitizeLLMJSONUnescapedQuotes uses the exact response phi4-mini produced
+// next: quotes inside a string without escaping.
+func TestSanitizeLLMJSONUnescapedQuotes(t *testing.T) {
+	const raw = `[
+    {"type":"insight","title":"Согласование","description":"Обсудите внедрение "smart search" в платформу.","priority":8}
+]`
+
+	out := sanitizeLLMJSON(raw)
+	var suggestions []Suggestion
+	if err := json.Unmarshal([]byte(out), &suggestions); err != nil {
+		t.Fatalf("still invalid after sanitizing: %v\n%s", err, out)
+	}
+	if len(suggestions) != 1 {
+		t.Fatalf("got %d suggestions, want 1", len(suggestions))
+	}
+	want := `Обсудите внедрение "smart search" в платформу.`
+	if suggestions[0].Description != want {
+		t.Fatalf("description = %q, want %q", suggestions[0].Description, want)
+	}
+}
