@@ -94,11 +94,11 @@ func newGraphCmd() *cobra.Command {
 
 	// graph get-edges subcommand
 	getEdgesCmd := &cobra.Command{
-		Use:   "get-edges <entity>",
-		Short: "Get all raw edges for an entity",
-		Long:  `Returns all edges for an entity as structured JSON (from, to, relation, date). No Prolog inference.`,
+		Use:     "get-edges <entity>",
+		Short:   "Get all raw edges for an entity",
+		Long:    `Returns all edges for an entity as structured JSON (from, to, relation, date). No Prolog inference.`,
 		Example: `  memory-cli graph get-edges Сварня`,
-		Args: cobra.ExactArgs(1),
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := newMemoryClient(dbPath, "", serverURL)
 			if err != nil {
@@ -123,5 +123,6 @@ func newGraphCmd() *cobra.Command {
 	cmd.AddCommand(queryCmd)
 	cmd.AddCommand(addCmd)
 	cmd.AddCommand(getEdgesCmd)
+	cmd.AddCommand(newGraphRegistryCmds()...)
 	return cmd
 }

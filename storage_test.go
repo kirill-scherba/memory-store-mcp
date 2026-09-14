@@ -109,7 +109,12 @@ func TestSaveWithTimeout(t *testing.T) {
 	defer store.Close()
 
 	val := &MemoryValue{Content: "timeout test"}
-	res := store.SaveWithTimeout(5*time.Second, "memory/test/timeout", val, "timeout test", false)
+	// The budget has to cover a real embedding round trip. At 5s this test
+	// failed whenever Ollama was busy loading a model or the machine was under
+	// load from a parallel build, which made it assert the machine's mood
+	// rather than the save mechanism. The mechanism is what is under test here;
+	// a genuinely broken SaveWithTimeout still fails at 60s.
+	res := store.SaveWithTimeout(60*time.Second, "memory/test/timeout", val, "timeout test", false)
 
 	if res.Err != nil {
 		t.Fatalf("SaveWithTimeout() error = %v", res.Err)

@@ -116,6 +116,10 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: graphGetEdgesTool(s).Tool, Handler: logWrap("graph_get_edges", s, graphGetEdgesTool(s).Handler)},
 		{Tool: graphAddEdgeTool(s).Tool, Handler: logWrap("graph_add_edge", s, graphAddEdgeTool(s).Handler)},
 		{Tool: graphQueryTool(s).Tool, Handler: logWrap("graph_query", s, graphQueryTool(s).Handler)},
+		{Tool: graphRepairTool(s).Tool, Handler: logWrap("graph_repair", s, graphRepairTool(s).Handler)},
+		{Tool: graphMergeTool(s).Tool, Handler: logWrap("graph_merge", s, graphMergeTool(s).Handler)},
+		{Tool: graphAliasTool(s).Tool, Handler: logWrap("graph_alias", s, graphAliasTool(s).Handler)},
+		{Tool: graphRelationsTool(s).Tool, Handler: logWrap("graph_relations", s, graphRelationsTool(s).Handler)},
 	}
 }
 

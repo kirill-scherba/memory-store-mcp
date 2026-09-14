@@ -33,10 +33,10 @@ import (
 type GraphEntity struct {
 	_       bool   `db_table_name:"graph_entities"`
 	ID      int64  `db:"id" db_key:"primary key autoincrement"`
-	Name    string `db:"name"`                 // display name, as first seen
+	Name    string `db:"name"`                     // display name, as first seen
 	NameKey string `db:"name_key" db_key:"unique"` // lowercased lookup key
-	Type    string `db:"type"`                 // person, place, image, doc, idea, ...
-	Aliases string `db:"aliases"`              // JSON array of alternative spellings
+	Type    string `db:"type"`                     // person, place, image, doc, idea, ...
+	Aliases string `db:"aliases"`                  // JSON array of alternative spellings
 }
 
 // GraphEdge is a directed relation between two entities.
@@ -84,6 +84,9 @@ func createGraphTables(db *sql.DB) error {
 	if err := sqlh.Create[GraphEdge](db); err != nil {
 		return fmt.Errorf("create graph_edges: %w", err)
 	}
+	if err := createAliasTable(db); err != nil {
+		return err
+	}
 	// sqlh's db_key "KEY ..." syntax is MySQL-only, so the indexes are created
 	// explicitly here. They turn edge lookups into index seeks.
 	for _, stmt := range []string{
@@ -119,6 +122,20 @@ func resolveEntityID(db *sql.DB, name, typ string) (int64, error) {
 		return existing.ID, nil
 	}
 
+	// A registered alias resolves to the canonical entity, so "Kirill" and
+	// "Кирилл" end up as one node instead of two.
+	if id, ok, err := resolveAliasKey(db, key); err != nil {
+		return 0, err
+	} else if ok {
+		return id, nil
+	}
+
+	// Infer the type from the name when the caller did not supply one. The
+	// relations an entity takes part in refine this later.
+	if typ == "" {
+		typ = inferEntityTypeFromName(name)
+	}
+
 	id, err := sqlh.InsertId(db, GraphEntity{Name: name, NameKey: key, Type: typ})
 	if err != nil {
 		// A concurrent writer may have created it; re-read before giving up.
@@ -142,6 +159,12 @@ func addGraphEdge(db *sql.DB, from, to, relation, date, source string) error {
 		return err
 	}
 	relation = strings.TrimSpace(relation)
+	// Fold extractor spellings into the vocabulary (заказала -> заказал). An
+	// unknown relation is kept as written so no fact is lost; relationReport
+	// lists it as vocabulary work.
+	if canonical, known := canonicalRelation(relation); known {
+		relation = canonical
+	}
 	if date == "" {
 		date = time.Now().UTC().Format("2006-01-02")
 	}
@@ -174,46 +197,18 @@ func addGraphEdge(db *sql.DB, from, to, relation, date, source string) error {
 }
 
 // edgesForEntity returns every edge that touches the named entity, matched
-// case-insensitively. It uses the (from_id, relation) and (to_id, relation)
-// indexes instead of listing and fetching all graph entries.
+// case-insensitively and through the alias registry. The name is resolved to an
+// entity id first, so an alias finds the canonical node's edges: a merged
+// document's ".md" spelling still returns the surviving node's edges.
 func edgesForEntity(db *sql.DB, name string) ([]GraphEdgeRow, error) {
-	key := normalizeName(name)
-	if key == "" {
+	ent, err := getEntityByName(db, name)
+	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-
-	// Custom SELECT with joins: raw SQL and rows.Scan, as sqlh.QueryRange maps
-	// table-composite structs rather than flat result rows.
-	const query = `
-		SELECT f.name AS from_name, t.name AS to_name,
-		       f.type AS from_type, t.type AS to_type,
-		       e.relation, e.date, e.source, e.confidence
-		FROM graph_edges e
-		JOIN graph_entities f ON f.id = e.from_id
-		JOIN graph_entities t ON t.id = e.to_id
-		JOIN graph_entities q ON q.id = e.from_id OR q.id = e.to_id
-		WHERE q.name_key = ?
-		ORDER BY e.date DESC, e.id DESC`
-
-	rows, err := db.Query(query, key)
 	if err != nil {
-		return nil, fmt.Errorf("query edges for %q: %w", name, err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	var out []GraphEdgeRow
-	for rows.Next() {
-		var r GraphEdgeRow
-		if err := rows.Scan(&r.FromName, &r.ToName, &r.FromType, &r.ToType,
-			&r.Relation, &r.Date, &r.Source, &r.Confidence); err != nil {
-			return nil, fmt.Errorf("scan edge: %w", err)
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate edges for %q: %w", name, err)
-	}
-	return out, nil
+	return edgesForEntityID(db, ent.ID)
 }
 
 // GraphContextItem is one entity with its immediate connections, ready to be
@@ -406,8 +401,8 @@ func formatGraphContext(items []GraphContextItem) string {
 
 		// Group by relation and direction, preserving first-seen order.
 		type key struct {
-			relation  string
-			outgoing  bool
+			relation string
+			outgoing bool
 		}
 		order := make([]key, 0, 8)
 		seen := make(map[key][]string)
@@ -664,9 +659,14 @@ func edgesAmong(db *sql.DB, ids []int64) ([]GraphEdgeRow, error) {
 // maxDepth hops, following edges in both directions. This is real traversal,
 // done with a recursive CTE: the previous implementation ignored depth.
 func neighborsForEntity(db *sql.DB, name string, maxDepth int) ([]GraphNeighbor, error) {
-	key := normalizeName(name)
-	if key == "" {
+	// Resolve through the alias registry so traversal starts at the canonical
+	// node even when the caller used a retired spelling.
+	ent, err := getEntityByName(db, name)
+	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	if maxDepth < 1 {
 		maxDepth = 1
@@ -675,7 +675,7 @@ func neighborsForEntity(db *sql.DB, name string, maxDepth int) ([]GraphNeighbor,
 	// UNION (not UNION ALL) deduplicates, so cycles terminate.
 	const query = `
 		WITH RECURSIVE start(id) AS (
-			SELECT id FROM graph_entities WHERE name_key = ?
+			SELECT ?
 		),
 		reach(id, depth) AS (
 			SELECT id, 0 FROM start
@@ -696,7 +696,7 @@ func neighborsForEntity(db *sql.DB, name string, maxDepth int) ([]GraphNeighbor,
 		 ORDER BY depth, en.name`
 
 	// Recursive CTE: raw SQL and rows.Scan (see edgesForEntity).
-	rows, err := db.Query(query, key, maxDepth, maxDepth)
+	rows, err := db.Query(query, ent.ID, maxDepth, maxDepth)
 	if err != nil {
 		return nil, fmt.Errorf("traverse from %q: %w", name, err)
 	}
