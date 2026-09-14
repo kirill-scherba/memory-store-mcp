@@ -525,6 +525,78 @@ from the index versus 124 ms for the scan; the index takes 74 ms to build and
 This replaced the libSQL DiskANN index, which needed 118 s to build, occupied
 1050 MB and answered in 22 ms at ~98% recall.
 
+## Knowledge Graph
+
+Entities and relations live in two indexed tables in the same database
+(`graph.go`), not as key-value entries. Before this, every query listed all
+`memory/graph/` keys and fetched each one (249 reads for 249 edges), `depth` was
+accepted but ignored, and the edges polluted semantic search.
+
+### Schema
+
+```sql
+graph_entities (id, name, name_key UNIQUE, type, aliases)
+graph_edges    (id, from_id, to_id, relation, date, source, confidence)
+               UNIQUE (from_id, relation, to_id, date)
+               INDEX  (from_id, relation), INDEX (to_id, relation)
+```
+
+`name_key` is lowercased in Go, because SQLite's `lower()` and `COLLATE NOCASE`
+fold ASCII only — Cyrillic needs this so that `кирилл` and `Кирилл` are one
+entity. Built with `sqlh` (`Create`, `Get`, `InsertId`, `CreateTable().Count()`);
+raw SQL with `rows.Scan` is used only for custom SELECTs (joins, recursive CTE),
+which the sqlh skill allows. sqlh's `db_key:"KEY ..."` is MySQL syntax and SQLite
+rejects it, so the indexes are created explicitly.
+
+### Tools
+
+| Tool | Behaviour |
+| --- | --- |
+| `graph_add_edge` | get-or-create both entities, insert unless an identical edge exists |
+| `graph_get_edges` | indexed lookup, both directions, case-insensitive |
+| `graph_query` | recursive-CTE traversal up to `depth`, plus Prolog inference fed from a single query |
+
+`migrateLegacyGraph` runs at startup: it moves `memory/graph/` entries into the
+tables and deletes them from the key-value store. Idempotent.
+
+### Consumption
+
+The graph is worthless if the agent has to remember to call it — `graph_query`
+went unused for seven weeks. `memory_get_context` and `memory_search` therefore
+inject a `=== Graph context ===` section for the entities mentioned in the query
+or in the retrieved memories. Entities are matched by stem (Russian inflects:
+"Сварня" -> "в Сварне") and ordered by first appearance, with longer matches
+winning ties. Auto-derived image mentions are filtered out: they belong to the
+gallery, not to context about the mentioned entity.
+
+### Growth
+
+| Source | When | Relation |
+| --- | --- | --- |
+| Gallery image metadata | on save + startup backfill | `упоминает`, skipping entities already connected |
+| `memory_extract` | together with the facts, same LLM call | free-form, chosen by the model |
+| `graph_add_edge` | manual | precise relations |
+
+`memory_extract` returns `{"facts": [...], "triples": [...]}`; a bare facts array
+is still accepted. `sanitizeLLMJSON` strips Markdown fences and trailing commas,
+which small models emit and which used to fail the whole extraction.
+
+### Contracts
+
+`GraphEdgeRow` serialises as `{"from","to","relation","date","source"}` — the
+gallery reads those names and parses the tool text with
+`/^Edges for[^\n]*:\s*\d+\n(.+)$/s`. Do not add bare-number JSON fields: a
+`"confidence": 1` once broke the gallery's greedy regex. Entity types travel with
+`json:"-"` and never reach the wire.
+
+### Phases pending
+
+1. Entity registry: types (mostly empty today), aliases, duplicate merging, a closed relation vocabulary.
+2. Deterministic extractors for memoirs (`рассказ_о`), goals, mail and the orchestrator.
+5. Prolog rules in a versioned file plus `memory_verify` for consistency checks.
+
+Not implemented: a path query between two entities — only neighbourhoods.
+
 ## Graceful Degradation
 
 | Component | Available | Behavior |

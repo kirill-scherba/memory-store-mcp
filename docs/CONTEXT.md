@@ -35,6 +35,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Keyword search (memory_find)** — exact SQL LIKE search on both keys and values with Unicode case-insensitivity fallback for Russian; complements semantic embedding search; available in MCP, CLI, and Telegram
 - **Contextual deep-search (memory_dig)** — finds entries matching a query, builds scenes with time-window context (entries before/after each match), intersects with additional keywords for relevance ranking; designed for "образная память" (associative human memory); available in MCP, CLI, and Telegram
 - **Session management** — save, get, list, and compact AI session state; available in MCP and CLI
+- **Knowledge graph** — entities and relations in indexed tables (`graph_entities`, `graph_edges`), not as key-value entries. `graph_get_edges` is an indexed lookup (two index seeks) and `graph_query` traverses with a recursive CTE, so `depth` is real. Connections are injected into `memory_get_context` and `memory_search` automatically, so the agent never has to remember to call a graph tool. The graph grows from gallery image metadata (deterministic) and from `memory_extract` triples (same LLM call as the facts).
 - **Bounded timeline** — only meaningful events are logged (writes, extraction, sessions, graph edges, goals); read tools are excluded, and `PruneTimeline` drops non-allowlisted types plus events older than `--timeline-retention` (default 30 days)
 
 ## Target Audience

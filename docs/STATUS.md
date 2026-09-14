@@ -67,6 +67,14 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 
 | Date | Commit | Description |
 |------|--------|-------------|
+| 2026-09-13 | `3becaec` | fix(graph): keep auto image mentions out of injected context |
+| 2026-09-13 | `f520c83` | feat(extract): memory_extract also produces graph edges |
+| 2026-09-13 | `16685a4` | fix(graph): parse gallery tags stored as a JSON array |
+| 2026-09-13 | `bf4a268` | feat(graph): derive image edges from gallery metadata |
+| 2026-09-13 | `3fe52a4` | feat(graph): inject graph connections into memory_get_context and memory_search |
+| 2026-09-13 | `c2cb1b1` | feat(graph): move the knowledge graph into indexed tables |
+| 2026-09-13 | `d96691d` | fix(goals): migrate legacy TEXT timestamps so goal reads work |
+| 2026-09-13 | `4f96e90` | feat!: pure-Go SQLite driver and in-process vector index |
 | 2026-09-13 | `9ecea9f` | feat: bound the timeline log and add compact; bump keyvalembd v0.5.1 |
 | 2026-09-13 | `f5924b2` | fix(graph): case-insensitive entity matching |
 | 2026-09-13 | `0ff7a24` | fix(cli): make migrate-vector-index re-run as a repair |
@@ -152,7 +160,8 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 ## Known Issues
 
 1. **No integration tests** — unit tests cover goals, LLM, and Telegram assistant, but no end-to-end test with a real database
-2. **Semantic search performance** — measured 2026-09-13 on 6845 vectors: 22 ms per query with the native vector index vs 124 ms for the exact scan (recall@1/@5 100%, recall@10 ~98%). The threshold (1500) should be re-checked as collections grow
+2. **Semantic search performance** — measured 2026-09-13: 5 ms per query with the in-process index (exact, 100% recall) vs 124 ms for the database scan. The libSQL DiskANN index that this replaced was 22 ms at ~98% recall and 1050 MB.
+9. **Graph phases pending** — Phase 1 (entity registry: types, aliases, duplicate merging, closed relation vocabulary), Phase 2 (deterministic extractors for memoirs, goals, mail, orchestrator), Phase 5 (Prolog rules in a versioned file, `memory_verify`). Extraction quality is bounded by the model: phi4-mini returned 1 triple from a text with four obvious relations; use `--extract-model` for better coverage. There is no path query (X -> ... -> Y), only neighbourhoods.
 3. **No Dockerfile** — currently requires manual Go build; no containerised deployment
 4. **Ollama dependency** — semantic search and LLM features require a running Ollama instance; graceful degradation is in place but reduced functionality
 5. **BotFather commands** — bot commands are registered via API on every start; this is fine but could be made optional with a flag
@@ -162,6 +171,9 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 
 ## Recent Fixes & Features
 
+- **Knowledge graph on tables** (2026-09-13): edges moved out of `memory/graph/` entries into `graph_entities` + `graph_edges` with indexes on `(from_id, relation)` and `(to_id, relation)`. Legacy migration is idempotent (249 keys -> 145 entities, 239 edges). `graph_get_edges` is now an indexed lookup instead of 249 `Get` calls; `graph_query` traverses with a recursive CTE and `depth` finally works ("кирилл" depth 2 -> 104 neighbours vs 38 direct before). Edges no longer pollute semantic search.
+- **Graph consumption and growth** (2026-09-13): `memory_get_context` and `memory_search` inject a `=== Graph context ===` section for entities mentioned in the query or in the retrieved memories, so the graph is used without calling a tool. The graph grows from gallery image metadata (auto-linked on save plus a startup backfill) and from `memory_extract`, which now returns `{"facts": [...], "triples": [...]}` in the same LLM call. Production: 239 -> 422 edges, 228 entities, 126 images with connections. Auto image mentions are filtered out of the injected context (they belong to the gallery).
+- **Pure-Go SQLite + in-process vector index** (2026-09-13): keyvalembd v0.6.x — `modernc.org/sqlite` instead of go-libsql and `vecindex` instead of libSQL DiskANN. Database 1437 -> 32 MB, index 20 MB, search ~5 ms exact. `memory-cli rebuild-index` replaces `migrate-vector-index`.
 - **Pure-Go SQLite + in-process vector index** (2026-09-13): bumped keyvalembd to v0.6.0 — modernc.org/sqlite instead of go-libsql, and the in-process vecindex instead of libSQL DiskANN. `migrate-vector-index` became `rebuild-index`. Production migration: dropped the DiskANN index and its shadow tables, VACUUM. Database 1083 MB → 32 MB, index 20.4 MB, service RSS 54 MB; search 5 ms, write ~150 ms; 0 errors. Binaries build with CGO_ENABLED=0.
 
 - **Timeline bounded + database compact** (2026-09-13): the timeline had grown to 2.7M rows / 327 MB, 95%+ of it read-access noise (2.6M `memory_get`). `logWrap` now uses an allowlist (writes, extraction, sessions, graph edges, goals), `PruneTimeline` drops non-allowlisted types and aged events (batched), and it runs in the background on startup and every 6h (`--timeline-retention`, default 30 days). New `memory-cli compact` drops the legacy `embedding` column and VACUUMs. keyvalembd bumped to v0.5.1: `embedding_vec` is now the single vector column (`DropLegacyEmbeddingColumn`, `Vacuum`). Production: timeline 2 758 618 → 1 825 rows, file 1437 MB → 1082 MB.
