@@ -153,3 +153,47 @@ low-signal edges the vocabulary removed.
 227 → 287, edges 422 → 532, untyped 26 of 287 (was 146 of 228).
 
 Commit `a14718d`.
+
+## 2026-09-14 — Graph Phase 3: vocabulary-bound LLM extraction
+
+The extractor asked for "a short lowercase Russian verb with underscores" and
+listed examples with a trailing `...` — an invitation to invent. Nine relations
+existed exactly once as a result.
+
+**The prompt is now generated from the vocabulary** (`relationMenu()`), so the
+two cannot drift apart; a test fails if they diverge. Document relations are
+excluded — the extractor records the world, not the archive.
+
+**A relation outside the vocabulary is refused**, not stored. The model is told
+to copy one exactly and to omit the triple when none fits, so an outsider is a
+model failure. Measured: phi4-mini answered `works_with` / `travels_in` instead
+of the relations it was given. Facts are still saved; the count is reported.
+
+**`graph_backfill_llm`** covers prose the deterministic extractors cannot read.
+Bounded by `limit`, resumable via a stored cursor, scoped by `prefix`.
+
+**Measured yield — the honest headline:**
+
+| source | entries | usable relations | cost |
+|---|---|---|---|
+| deterministic extractors | 51 | 116 | free |
+| LLM backfill (cloud) | 32 | 1 | ~15 s/entry |
+
+The store is mostly machine state and technical notes; the narrative worth
+extracting lives in the memoir files, which are not memory entries. The
+backfill stays (right tool once that text is ingested); a mass run over the
+store as it stands is not worth the calls. The section list was cut to the
+narrative ones on the strength of this.
+
+**Bugs found:**
+- `deepseek-v4-flash` put a backslash before a closing quote
+  (`"date": "2026-08-14\"`) and then escaped every following quote, breaking
+  extraction entirely. Regex patches cannot fix this — repairing the first
+  defect only moves the error down. `repairJSONStrings` walks the document as a
+  token stream and handles the slipped backslash, the unescaped inner quote and
+  the over-escaped tail together.
+- The CLI gave every MCP session a hard 120 s timeout; a 20-entry backfill ran
+  past it and printed nothing while the server finished the work.
+  `mcpCallTimeout` is now raised by the backfill commands.
+
+Commit `7fc5582`.
