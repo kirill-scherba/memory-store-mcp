@@ -63,13 +63,29 @@ Return ONLY the JSON object, nothing else. Example:
 {"facts":[{"content":"Using Go 1.26 for the project","summary":"Tech stack: Go 1.26","tags":["go","tech-stack"]}],"triples":[{"from":"Кирилл","relation":"был_в","to":"Сварня","date":"2026-09-13"}]}`
 }
 
-// trailingComma matches a comma that directly precedes a closing bracket —
-// the most common way small models produce invalid JSON.
-var trailingComma = regexp.MustCompile(`,\s*([}\]])`)
+// Patterns for the malformed JSON small models produce. Order matters: the "="
+// patterns run before the comma pattern so a repaired value is not re-matched.
+var (
+	// Trailing comma before a closing bracket: [1,2,] -> [1,2]
+	trailingComma = regexp.MustCompile(`,\s*([}\]])`)
+	// "key="value"  ->  "key":"value"
+	equalsQuoted = regexp.MustCompile(`"(description|title|type|summary|content)="([^"]*)"`)
+	// "key=plain,   ->  "key":"plain",
+	equalsBare = regexp.MustCompile(`"(description|title|type|summary|content)=([^",}\]]+)`)
+	// "value,"key":  ->  "value","key":   (the comma slipped inside the string).
+	// The leading ([:,]) anchors the match to the opening quote of a value:
+	// without it the pattern matches the closing quote of the previous value
+	// and inserts an empty string into well-formed JSON.
+	commaInString = regexp.MustCompile(`([:,])"([^"]*),"(description|title|type|summary|content|priority)"`)
+)
 
-// sanitizeLLMJSON cleans up what small models emit around valid JSON: Markdown
-// code fences and trailing commas before a closing bracket. Both make the
-// response unparseable, and both are cheap to fix.
+// sanitizeLLMJSON repairs what small models emit around otherwise valid JSON:
+// Markdown code fences, "key=value" instead of "key":"value", a comma that
+// slipped inside a string, and trailing commas before a closing bracket.
+//
+// Well-formed JSON is left untouched: commaInString is anchored to the opening
+// quote of a value (preceded by : or ,), so it cannot match the closing quote of
+// the previous value.
 func sanitizeLLMJSON(s string) string {
 	s = strings.TrimSpace(s)
 
@@ -81,6 +97,9 @@ func sanitizeLLMJSON(s string) string {
 		s = strings.TrimSuffix(strings.TrimSpace(s), "```")
 	}
 
+	s = equalsQuoted.ReplaceAllString(s, `"$1":"$2"`)
+	s = equalsBare.ReplaceAllString(s, `"$1":"$2"`)
+	s = commaInString.ReplaceAllString(s, `$1"$2","$3"`)
 	s = trailingComma.ReplaceAllString(s, "$1")
 	return strings.TrimSpace(s)
 }

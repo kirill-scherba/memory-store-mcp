@@ -108,3 +108,41 @@ func TestGetContextForInjectionEmpty(t *testing.T) {
 		t.Fatalf("GetContextForInjection(empty) = %q, want empty", ctx)
 	}
 }
+
+// TestSanitizeLLMJSONBrokenQuote uses the exact malformed response phi4-mini
+// produced for memory_suggest: the closing quote after the title disappeared
+// and the comma slipped inside the string.
+func TestSanitizeLLMJSONBrokenQuote(t *testing.T) {
+	const raw = "```json\n" + `[
+  {"type":"followup","title":"Обеспечить безопасность js-yaml","description":"Обновите js-yaml.","priority":9},
+  {"type":"followup","title":"Запланировать сны,"description":"Запишите сон.","priority":9}
+]` + "\n```"
+
+	out := sanitizeLLMJSON(raw)
+	if strings.Contains(out, "```") {
+		t.Fatalf("fence not stripped:\n%s", out)
+	}
+
+	var suggestions []Suggestion
+	if err := json.Unmarshal([]byte(out), &suggestions); err != nil {
+		t.Fatalf("still invalid after sanitizing: %v\n%s", err, out)
+	}
+	if len(suggestions) != 2 {
+		t.Fatalf("got %d suggestions, want 2", len(suggestions))
+	}
+	if suggestions[1].Title != "Запланировать сны" {
+		t.Fatalf("title = %q, want %q", suggestions[1].Title, "Запланировать сны")
+	}
+	if suggestions[0].Title != "Обеспечить безопасность js-yaml" {
+		t.Fatalf("first title = %q", suggestions[0].Title)
+	}
+}
+
+// TestSanitizeLLMJSONKeepsValidJSON: the repair patterns must not touch
+// well-formed JSON.
+func TestSanitizeLLMJSONKeepsValidJSON(t *testing.T) {
+	const valid = `[{"type":"insight","title":"ok","description":"fine","priority":5}]`
+	if out := sanitizeLLMJSON(valid); out != valid {
+		t.Fatalf("valid JSON was modified:\n in: %s\nout: %s", valid, out)
+	}
+}
