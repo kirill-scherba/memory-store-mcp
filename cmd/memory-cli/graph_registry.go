@@ -19,6 +19,7 @@ func newGraphRegistryCmds() []*cobra.Command {
 
 	// graph repair
 	var dryRun bool
+	var retype bool
 	repairCmd := &cobra.Command{
 		Use:   "repair",
 		Short: "Repair the graph: types, duplicate docs, relation spellings",
@@ -26,9 +27,13 @@ func newGraphRegistryCmds() []*cobra.Command {
 relation spellings. Idempotent and non-destructive: no fact is deleted, and
 relations outside the vocabulary are reported rather than rewritten.
 
-Use --dry-run to see the numbers without writing anything.`,
+Use --dry-run to see the numbers without writing anything.
+
+Use --retype after changing the relation vocabulary: a type, once set, is never
+overwritten, so a type derived from a wrong rule stays wrong.`,
 		Example: `  memory-cli graph repair --dry-run
-  memory-cli graph repair`,
+  memory-cli graph repair
+  memory-cli graph repair --retype`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := newMemoryClient(dbPath, "", serverURL)
@@ -37,7 +42,10 @@ Use --dry-run to see the numbers without writing anything.`,
 			}
 			defer client.close()
 
-			result, err := client.callTool("graph_repair", map[string]any{"dry_run": dryRun})
+			result, err := client.callTool("graph_repair", map[string]any{
+				"dry_run": dryRun,
+				"retype":  retype,
+			})
 			if err != nil {
 				return fmt.Errorf("graph_repair call: %w", err)
 			}
@@ -48,6 +56,7 @@ Use --dry-run to see the numbers without writing anything.`,
 	repairCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
 	repairCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
 	repairCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Report what would change without writing")
+	repairCmd.Flags().BoolVar(&retype, "retype", false, "Re-derive entity types from scratch (use after a vocabulary change)")
 
 	// graph merge
 	var keep, drop string
@@ -218,5 +227,68 @@ the cost of a full pass can be spread over several runs.`,
 	backfillLLMCmd.Flags().IntVar(&llmTimeout, "timeout", 1800, "MCP session timeout in seconds")
 	backfillLLMCmd.Flags().StringVar(&llmPrefix, "prefix", "", "Restrict the run to one key prefix (e.g. memory/user/)")
 
-	return []*cobra.Command{repairCmd, mergeCmd, aliasCmd, relationsCmd, backfillCmd, backfillLLMCmd}
+	// graph infer
+	var inferPredicate string
+	inferCmd := &cobra.Command{
+		Use:   "infer",
+		Short: "Derive facts the graph implies but does not store",
+		Long: `Run the versioned inference rules in graph_rules.pl over the graph.
+
+Predicates: inverse_of (a relation whose reverse is missing), together (people
+at the same place on the same day), serves (a place serves a dish, derived from
+an order during a visit), contradiction (a relation holding two values where
+only one is possible).
+
+Derived facts are answers, not rows: nothing is written to graph_edges.`,
+		Example: `  memory-cli graph infer
+  memory-cli graph infer --predicate together
+  memory-cli graph infer --predicate serves`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := newMemoryClient(dbPath, "", serverURL)
+			if err != nil {
+				return fmt.Errorf("create client: %w", err)
+			}
+			defer client.close()
+
+			result, err := client.callTool("graph_infer", map[string]any{"predicate": inferPredicate})
+			if err != nil {
+				return fmt.Errorf("graph_infer call: %w", err)
+			}
+			fmt.Println(result)
+			return nil
+		},
+	}
+	inferCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
+	inferCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
+	inferCmd.Flags().StringVar(&inferPredicate, "predicate", "", "Run one predicate only")
+
+	// graph verify
+	verifyCmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Report what the graph asserts but cannot hold",
+		Long: `Report contradictions derived by graph_rules.pl, and type violations where an
+edge contradicts the relation vocabulary. Nothing is changed: the result is a
+list of things to look at.`,
+		Example: `  memory-cli graph verify`,
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := newMemoryClient(dbPath, "", serverURL)
+			if err != nil {
+				return fmt.Errorf("create client: %w", err)
+			}
+			defer client.close()
+
+			result, err := client.callTool("graph_verify", map[string]any{})
+			if err != nil {
+				return fmt.Errorf("graph_verify call: %w", err)
+			}
+			fmt.Println(result)
+			return nil
+		},
+	}
+	verifyCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
+	verifyCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
+
+	return []*cobra.Command{repairCmd, mergeCmd, aliasCmd, relationsCmd, backfillCmd, backfillLLMCmd, inferCmd, verifyCmd}
 }

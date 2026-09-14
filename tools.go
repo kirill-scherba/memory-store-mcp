@@ -122,6 +122,8 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: graphRelationsTool(s).Tool, Handler: logWrap("graph_relations", s, graphRelationsTool(s).Handler)},
 		{Tool: graphBackfillTool(s).Tool, Handler: logWrap("graph_backfill", s, graphBackfillTool(s).Handler)},
 		{Tool: graphBackfillLLMTool(s).Tool, Handler: logWrap("graph_backfill_llm", s, graphBackfillLLMTool(s).Handler)},
+		{Tool: graphInferTool(s).Tool, Handler: logWrap("graph_infer", s, graphInferTool(s).Handler)},
+		{Tool: graphVerifyTool(s).Tool, Handler: logWrap("graph_verify", s, graphVerifyTool(s).Handler)},
 	}
 }
 
@@ -882,8 +884,18 @@ func graphQueryTool(s *Storage) server.ServerTool {
 }
 
 // callProlog sends facts and rules to prolog-mcp through the MCP gateway and
-// returns its textual result.
+// returns its textual result with the JSON structure flattened away. It is kept
+// for graph_query, whose output is read by a person. Code that needs to tell
+// one solution from the next calls callPrologRaw and parses the JSON.
 func callProlog(code string) string {
+	raw := callPrologRaw(code)
+	raw = strings.ReplaceAll(raw, "[", "")
+	raw = strings.ReplaceAll(raw, "]", "")
+	return raw
+}
+
+// callPrologRaw sends a program to prolog-mcp and returns its result verbatim.
+func callPrologRaw(code string) string {
 	prologReq := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      time.Now().UnixMilli(),
@@ -922,10 +934,7 @@ func callProlog(code string) string {
 	if pr.Result == nil || len(pr.Result.Content) == 0 {
 		return ""
 	}
-	res := pr.Result.Content[0].Text
-	res = strings.ReplaceAll(res, "[", "")
-	res = strings.ReplaceAll(res, "]", "")
-	return res
+	return pr.Result.Content[0].Text
 }
 
 // prologAtom wraps a string in single quotes for use as a Prolog atom.

@@ -28,10 +28,14 @@ Use dry_run=true to see what would change without writing.`),
 			mcp.WithBoolean("dry_run",
 				mcp.Description("Report what would change without writing (default: false)"),
 			),
+			mcp.WithBoolean("retype",
+				mcp.Description("Re-derive entity types from scratch. Use after the relation vocabulary changes: a type, once set, is never overwritten, so a type derived from a wrong rule stays wrong."),
+			),
 		),
 		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := request.GetArguments()
 			dryRun, _ := args["dry_run"].(bool)
+			retype, _ := args["retype"].(bool)
 			db := s.goals
 
 			before, err := graphOverviewOf(db)
@@ -81,6 +85,12 @@ Use dry_run=true to see what would change without writing.`),
 				return mcp.NewToolResultText(fmt.Sprintf("Dry run — nothing written.\n%s", string(out))), nil
 			}
 
+			cleared := 0
+			if retype {
+				if cleared, err = resetDerivedTypes(db); err != nil {
+					return mcp.NewToolResultText(fmt.Sprintf("Error clearing derived types: %v", err)), nil
+				}
+			}
 			typed, err := applyPatternTypes(db)
 			if err != nil {
 				return mcp.NewToolResultText(fmt.Sprintf("Error applying pattern types: %v", err)), nil
@@ -104,6 +114,7 @@ Use dry_run=true to see what would change without writing.`),
 			}
 
 			report["pattern_types_applied"] = typed
+			report["types_cleared_for_retype"] = cleared
 			report["types_propagated"] = propagated
 			report["types_ambiguous"] = ambiguous
 			report["duplicate_docs_merged"] = removed

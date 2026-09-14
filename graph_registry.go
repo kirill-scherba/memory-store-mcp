@@ -120,8 +120,16 @@ var relationVocabulary = []RelationSpec{
 		From: []string{TypeImage}, To: []string{TypePlace}},
 
 	// Document relations: they describe the archive, not the world.
-	{Name: "рассказ_о", From: []string{TypeDoc}, To: nil, Document: true},
-	{Name: "иллюстрация", From: []string{TypeDoc}, To: []string{TypeImage}, Document: true},
+	// "Tells about" is said of a document and of a person: a chapter tells about
+	// Сварня, Барон told about Сварня. The verifier flagged the person case
+	// against the first version of this rule, which is how the gap was found.
+	{Name: "рассказ_о", From: []string{TypeDoc, TypePerson}, To: nil, Document: true},
+	// An image illustrates something: the edge runs image -> illustrated, and
+	// the illustrated end is open (a document, a project, a place). The
+	// direction was declared the other way at first, and because the object end
+	// was a single type, type propagation painted every illustrated entity as
+	// an image — Cooksy and MATRICA among them.
+	{Name: "иллюстрация", From: []string{TypeImage}, To: nil, Document: true},
 	{Name: "упоминает", From: []string{TypeImage, TypeDoc, TypePerson, TypeProject}, To: nil, Document: true},
 }
 
@@ -630,6 +638,88 @@ func patternTypeFixes(db *sql.DB) ([]entityTypeFix, error) {
 		}
 	}
 	return todo, rows.Err()
+}
+
+// resetDerivedTypes clears the types that no relation justifies, so
+// propagateEntityTypes can derive them again.
+//
+// A type, once set, is never overwritten, which is what keeps inference from
+// flip-flopping. The cost is that a type derived from a wrong rule stays wrong
+// forever: when иллюстрация pointed the other way, propagation painted the
+// illustrated entity as an image and nothing would have corrected it.
+//
+// The test is "no edge justifies this type", and justification means a
+// relation that states the type positively — a non-empty allow list that
+// contains it. An open end (упоминает connects to anything) is silence, not
+// justification: an entity mentioned by an image is not thereby an image, and
+// treating that as support would have left Cooksy mistyped.
+//
+// Clearing everything would be simpler and wrong. Not every type comes from a
+// relation: the deterministic extractors state one when they create an entity
+// (a mail sender is an organisation), and a type with no edge against it must
+// survive.
+func resetDerivedTypes(db *sql.DB) (int, error) {
+	rows, err := db.Query(`
+		SELECT f.id, f.name, f.type, t.type, e.relation, 1 AS from_side
+		  FROM graph_edges e
+		  JOIN graph_entities f ON f.id = e.from_id
+		  JOIN graph_entities t ON t.id = e.to_id
+		 WHERE f.type <> ''
+		UNION ALL
+		SELECT t.id, t.name, t.type, f.type, e.relation, 0
+		  FROM graph_edges e
+		  JOIN graph_entities f ON f.id = e.from_id
+		  JOIN graph_entities t ON t.id = e.to_id
+		 WHERE t.type <> ''`)
+	if err != nil {
+		return 0, fmt.Errorf("load typed edges: %w", err)
+	}
+	defer rows.Close()
+
+	// justified[id] is set when some edge states the stored type positively.
+	justified := map[int64]bool{}
+	// seen[id] marks entities that take part in at least one edge: an entity
+	// with no edges cannot be contradicted by one.
+	seen := map[int64]bool{}
+	names := map[int64]string{}
+	stored := map[int64]string{}
+
+	for rows.Next() {
+		var id int64
+		var name, typ, otherType, relation string
+		var fromSide int
+		if err := rows.Scan(&id, &name, &typ, &otherType, &relation, &fromSide); err != nil {
+			return 0, fmt.Errorf("scan typed edge: %w", err)
+		}
+		names[id], stored[id], seen[id] = name, typ, true
+
+		spec := relationSpecByName(relation)
+		if spec == nil {
+			continue
+		}
+		allow := spec.To
+		if fromSide == 1 {
+			allow = spec.From
+		}
+		if len(allow) > 0 && typeAllowed(allow, typ) {
+			justified[id] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	cleared := 0
+	for id := range seen {
+		if justified[id] || inferEntityTypeFromName(names[id]) != "" {
+			continue
+		}
+		if _, err := db.Exec(`UPDATE graph_entities SET type='' WHERE id=?`, id); err != nil {
+			return cleared, fmt.Errorf("clear type of %q: %w", names[id], err)
+		}
+		cleared++
+	}
+	return cleared, nil
 }
 
 // applyPatternTypes sets the type of every entity whose name matches an
