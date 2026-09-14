@@ -104,6 +104,16 @@ type LLMChatRequest struct {
 	Model    string              `json:"model"`
 	Messages []OllamaChatMessage `json:"messages"`
 	Stream   *bool               `json:"stream,omitempty"`
+
+	// Think toggles the model's reasoning output. Reasoning models such as
+	// deepseek-v4-flash:cloud emit hundreds of "thinking" tokens before the
+	// answer; those tokens are billed against the response budget and dominated
+	// the latency of memory_suggest and memory_extract. On the same prompt the
+	// cloud model produced 900-2000 thinking tokens and took 8.6-20.5 s, against
+	// 273-376 tokens and 4-5 s with reasoning disabled. The calls here want
+	// structured JSON, not deliberation. Left nil for OpenAI-compatible
+	// endpoints, which do not know this field.
+	Think *bool `json:"think,omitempty"`
 }
 
 // OllamaChatResponse is the response from Ollama /api/chat.
@@ -265,6 +275,10 @@ func generateAnswerWithClient(client *http.Client, model string, messages []Olla
 		Model:    model,
 		Messages: messages,
 		Stream:   boolPtr(false),
+	}
+	// Skip the reasoning phase on the Ollama endpoint. See LLMChatRequest.Think.
+	if llmAPIKeyOverride == "" {
+		reqBody.Think = boolPtr(false)
 	}
 
 	body, err := json.Marshal(reqBody)
