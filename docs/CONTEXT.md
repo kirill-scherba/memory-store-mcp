@@ -59,3 +59,28 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - [s3lite](https://github.com/kirill-scherba/s3lite) — S3-like key-value store interface
 - [web-search-mcp](https://github.com/kirill-scherba/web-search-mcp) — reference MCP server implementation
 - [db-tool-mcp](https://github.com/kirill-scherba/db-tool-mcp) — another reference MCP server
+
+## 2026-09-14 — LLM reasoning latency
+
+`memory_suggest` was slow on the cloud model too, which was counter-intuitive
+because `deepseek-v4-flash:cloud` is far faster per token than `phi4-mini`.
+Measured cause: the cloud model is a **reasoning model**. It emits a `thinking`
+block before the answer, and those tokens are billed against the response budget.
+
+| | eval tokens | wall time |
+|---|---|---|
+| thinking on | 898–2018 | 8.6–20.5 s |
+| thinking off (`think:false`) | 273–376 | 4.0–5.1 s |
+
+Plumbing was ruled out: a stdio MCP round trip costs 29 ms.
+
+`generateAnswerWithClient` now sends `"think": false`, which covers
+`memory_suggest` and `memory_extract` (both want structured JSON, not
+deliberation). The field is sent only to the Ollama endpoint — OpenAI-compatible
+APIs do not know it. Streaming Telegram answers keep reasoning. `phi4-mini`
+ignores the field, so the local path is unchanged.
+
+End to end `memory-cli suggest` on the cloud model: 15.7 s → 5.4 s, and answer
+quality improved (suggestions cite the real advisory, invoice amount and goal).
+
+Commit `4416e7f`.
