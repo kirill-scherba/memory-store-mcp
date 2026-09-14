@@ -151,27 +151,63 @@ func extractFactsWithGenerator(text string, generateFn func([]OllamaChatMessage)
 // suggestSystemPrompt returns the system prompt for the suggestion LLM call.
 // The lang parameter controls the output language ("ru" for Russian, "en" for English).
 func suggestSystemPrompt(lang string) string {
+	// All the rules live here, in the system prompt, so that truncating the
+	// data-only user prompt can never cut them off.
 	var additional string
 	if lang == "ru" {
-		additional = "\n\nВАЖНОЕ ПРАВИЛО: Все заголовки и описания должны быть на РУССКОМ языке."
+		additional = "\n\nLANGUAGE: write every title and description in RUSSIAN."
 	}
 
-	return `You are a proactive assistant that analyses context and goals to suggest next steps.
-Return ONLY a JSON array of suggestion objects. Each suggestion has:
+	return `You are a proactive assistant. You are given the user's recent activity and their active goals. Propose concrete next actions.
+
+RULES:
+1. NEVER restate or paraphrase a goal. A suggestion must be a concrete action with a verb and an object — for example "Reply to the investor email from yesterday before 18:00", not "Work on the investor pitch".
+2. Ground each suggestion in the recent activity whenever possible: connect what just happened to the goal it affects. That connection is the whole point of this task.
+3. If the recent activity relates to no goal, pick the goal with the nearest deadline or the one whose progress has stalled, and state what to do about it today.
+4. Never invent facts, events, people, reminders or deadlines that are not in the input.
+5. priority is an integer 0-10: 0-3 someday, 4-6 this week, 7-8 today, 9-10 urgent or blocking. Most suggestions belong in 4-7; reserve 9-10 for a real deadline or a blocker.
+6. Return at most the requested number of suggestions. Fewer specific ones beat more generic ones.
+
+Return ONLY a JSON array of suggestion objects, each with:
 - type: one of "reminder", "followup", "goal_next_step", "insight"
 - title: short title (max 60 chars)
-- description: brief description (max 200 chars)
+- description: brief description (max 200 chars) stating the concrete action
 - priority: integer 0-10
 
 Example:
-[{"type":"goal_next_step","title":"Setup CI/CD pipeline","description":"You discussed setting up CI/CD for Cooksy. A good next step would be to define the deployment workflow.","priority":8}]`+additional
+[{"type":"followup","title":"Reply to the investor before 18:00","description":"An investor answered yesterday asking for numbers. Send the one-pager today before the end of the working day.","priority":8}]` + additional
 }
 
-// SuggestPrompt builds a structured prompt for the suggest LLM call.
+// detectLang guesses the language of the given samples by counting Cyrillic and
+// Latin letters. Used when the caller does not state a language.
+func detectLang(samples ...string) string {
+	var cyr, lat int
+	for _, s := range samples {
+		for _, r := range s {
+			switch {
+			case r >= 'а' && r <= 'я', r >= 'А' && r <= 'Я', r == 'ё', r == 'Ё':
+				cyr++
+			case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+				lat++
+			}
+		}
+	}
+	if cyr > lat {
+		return "ru"
+	}
+	return "en"
+}
+
+// SuggestPrompt bounds the user prompt for the suggest LLM call.
+//
+// The prompt is data only — the rules live in suggestSystemPrompt — so cutting
+// it here can never remove the instructions. Suggest already bounds the data by
+// construction (top goals, recent events, truncated contents); this is a final
+// safety net.
 func SuggestPrompt(context string) string {
-	// The context is already formatted, just ensure it's reasonable
-	if len(context) > 4000 {
-		context = context[:4000] + "..."
+	const maxPrompt = 8000
+	if len(context) > maxPrompt {
+		context = context[:maxPrompt] + "..."
 	}
 	return context
 }

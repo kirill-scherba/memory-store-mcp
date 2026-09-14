@@ -881,3 +881,42 @@ func TestPruneTimeline(t *testing.T) {
 		t.Fatalf("retention=0: n=%d err=%v, want 1 (type purge only)", n, err)
 	}
 }
+
+// TestLogWrapSkipsMachineStateKeys: the scheduler's task list and the mail
+// butler's poll marker are rewritten constantly and used to be 62% of the
+// timeline, drowning the real activity that memory_suggest reads.
+func TestLogWrapSkipsMachineStateKeys(t *testing.T) {
+	store := newTestStorage(t)
+
+	countEvents := func() int {
+		t.Helper()
+		var n int
+		if err := store.goals.QueryRow(`SELECT COUNT(*) FROM timeline_events`).Scan(&n); err != nil {
+			t.Fatalf("count events: %v", err)
+		}
+		return n
+	}
+
+	ok := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("ok"), nil
+	}
+	write := logWrap("memory_save", store, ok)
+
+	for _, key := range []string{"memory/scheduler/tasks", "memory/mail-butler/last-checked"} {
+		if _, err := write(context.Background(),
+			newToolRequest(map[string]interface{}{"key": key})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := countEvents(); n != 0 {
+		t.Fatalf("machine-state writes logged %d events, want 0", n)
+	}
+
+	if _, err := write(context.Background(),
+		newToolRequest(map[string]interface{}{"key": "memory/project/real-activity"})); err != nil {
+		t.Fatal(err)
+	}
+	if n := countEvents(); n != 1 {
+		t.Fatalf("a real write logged %d events, want 1", n)
+	}
+}

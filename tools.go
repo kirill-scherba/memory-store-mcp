@@ -47,6 +47,16 @@ var timelineLogAllow = map[string]bool{
 	"memory_goal_delete": true,
 }
 
+// timelineKeySkip lists key prefixes whose writes are machine state rather than
+// activity. The scheduler rewrites its task list and the mail butler its poll
+// marker constantly (62% of all timeline rows at the time of writing), and they
+// drowned the real events — which is what memory_suggest reads to ground its
+// suggestions.
+var timelineKeySkip = []string{
+	"memory/scheduler/",
+	"memory/mail-butler/",
+}
+
 func logWrap(name string, s *Storage, fn server.ToolHandlerFunc) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if !timelineLogAllow[name] {
@@ -68,6 +78,12 @@ func logWrap(name string, s *Storage, fn server.ToolHandlerFunc) server.ToolHand
 			summary = v
 		} else if v, ok := args["text"].(string); ok && v != "" {
 			summary = truncate(v, 80)
+		}
+
+		for _, skip := range timelineKeySkip {
+			if strings.HasPrefix(key, skip) {
+				return fn(ctx, request)
+			}
 		}
 
 		s.LogEvent(name, key, summary, "")

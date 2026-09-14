@@ -47,18 +47,26 @@ func TestSuggestSystemPromptEn(t *testing.T) {
 	if !strings.Contains(prompt, "reminder") {
 		t.Fatal("suggestSystemPrompt(en) missing expected content")
 	}
-	if strings.Contains(prompt, "ВАЖНОЕ ПРАВИЛО") {
-		t.Fatal("suggestSystemPrompt(en) contains Russian text")
+	if strings.Contains(prompt, "RUSSIAN") {
+		t.Fatal("suggestSystemPrompt(en) contains the Russian-language rule")
 	}
 }
 
 func TestSuggestSystemPromptRu(t *testing.T) {
 	prompt := suggestSystemPrompt("ru")
-	if !strings.Contains(prompt, "ВАЖНОЕ ПРАВИЛО") {
-		t.Fatal("suggestSystemPrompt(ru) missing Russian rule text")
+	if !strings.Contains(prompt, "RUSSIAN") {
+		t.Fatal("suggestSystemPrompt(ru) missing the language rule")
 	}
-	if !strings.Contains(prompt, "RUSSKOM") && !strings.Contains(prompt, "русском") {
-		t.Log("suggestSystemPrompt(ru) may not contain expected Russian text")
+}
+
+// TestDetectLang: the goals are Russian, and hardcoding "en" used to produce
+// English suggestions for them.
+func TestDetectLang(t *testing.T) {
+	if got := detectLang("Завершить пазл", "Срочно получить миллион"); got != "ru" {
+		t.Fatalf("detectLang(ru) = %q, want ru", got)
+	}
+	if got := detectLang("Finalize the dream weaver", "Investor pitch"); got != "en" {
+		t.Fatalf("detectLang(en) = %q, want en", got)
 	}
 }
 
@@ -68,9 +76,9 @@ func TestSuggestPrompt(t *testing.T) {
 		t.Fatalf("SuggestPrompt(short) = %q, want hello", short)
 	}
 
-	long := strings.Repeat("a", 5000)
+	long := strings.Repeat("a", 9000)
 	truncated := SuggestPrompt(long)
-	if len(truncated) >= 5000 {
+	if len(truncated) >= 9000 {
 		t.Fatal("SuggestPrompt(long) not truncated")
 	}
 	if !strings.HasSuffix(truncated, "...") {

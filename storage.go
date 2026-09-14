@@ -1383,32 +1383,64 @@ func (s *Storage) Suggest(currentContext string, limit int, lang string) ([]Sugg
 		return nil, fmt.Errorf("get recent timeline: %w", err)
 	}
 
-	// Build prompt for the LLM
-	var goalLines []string
-	for _, g := range goals {
-		status := "⏳"
-		if g.Progress >= 100 {
-			status = "✓"
-		}
-		goalLines = append(goalLines, fmt.Sprintf("%s %s: %s (progress: %d%%, priority: %d)",
-			status, g.Title, g.Description, g.Progress, g.Priority))
-	}
+	// Build the prompt. It is bounded by construction: events first (they are
+	// the material for synthesis), then goals without descriptions. The previous
+	// version pasted every goal with its full description (26 KB), which the
+	// 4 KB truncation then cut — taking the events and the output instruction
+	// with it, so the model could only paraphrase the first few goals.
+	const (
+		maxGoals  = 20
+		maxEvents = 10
+	)
 
 	var recentLines []string
 	for _, e := range recentTimeline {
-		recentLines = append(recentLines, fmt.Sprintf("[%s] %s: %s",
-			e.CreatedAt[:10], e.Key, truncate(e.Value.Content, 80)))
+		content := truncate(e.Value.Content, 140)
+		if content == "" {
+			content = truncate(e.Value.Summary, 140)
+		}
+		recentLines = append(recentLines, fmt.Sprintf("- [%s] %s: %s", e.CreatedAt[:10], e.Key, content))
+	}
+	if len(recentLines) == 0 {
+		recentLines = append(recentLines, "- (nothing recorded recently)")
 	}
 
-	prompt := fmt.Sprintf(`Analyse the following context and active goals, and suggest up to %d proactive suggestions. Current context: %s
+	var goalLines []string
+	for i, g := range goals {
+		if i >= maxGoals {
+			break
+		}
+		extra := ""
+		if g.Deadline != "" {
+			extra += ", deadline " + g.Deadline
+		}
+		if g.Progress > 0 {
+			extra += fmt.Sprintf(", %d%%", g.Progress)
+		}
+		goalLines = append(goalLines, fmt.Sprintf("- [priority %d%s] %s", g.Priority, extra, g.Title))
+	}
 
-Active goals:
+	// Language: the caller's choice, otherwise follow the goals themselves.
+	if lang == "" {
+		samples := make([]string, 0, len(goals)+1)
+		for _, g := range goals {
+			samples = append(samples, g.Title)
+		}
+		samples = append(samples, currentContext)
+		lang = detectLang(samples...)
+	}
+
+	prompt := fmt.Sprintf(`Suggest up to %d next actions.
+
+## Recent activity
 %s
 
-Recent activity:
+## Active goals (%d total, showing %d by priority)
 %s
 
-Return a JSON array of suggestions. Each suggestion has: type (reminder/followup/goal_next_step/insight), title, description, priority (0-10).`, limit, currentContext, strings.Join(goalLines, "\n"), strings.Join(recentLines, "\n"))
+## Current context
+%s`, limit, strings.Join(recentLines, "\n"), len(goals), len(goalLines),
+		strings.Join(goalLines, "\n"), currentContext)
 
 	suggestPrompt := SuggestPrompt(prompt)
 	sysPrompt := suggestSystemPrompt(lang)

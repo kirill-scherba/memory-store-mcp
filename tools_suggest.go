@@ -40,7 +40,9 @@ Analyzes active goals + timeline + recent memories to recommend next actions.`),
 				currentContext = "current conversation"
 			}
 
-			lang := "en"
+			// Empty means "detect from the goals"; the user's goals are Russian,
+			// so hardcoding "en" produced English suggestions for Russian goals.
+			lang := ""
 			if v, ok := args["lang"].(string); ok {
 				lang = v
 			}
