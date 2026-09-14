@@ -197,3 +197,43 @@ narrative ones on the strength of this.
   `mcpCallTimeout` is now raised by the backfill commands.
 
 Commit `7fc5582`.
+
+## 2026-09-14 — Graph Phase 5: versioned rules, inference, verification
+
+The rules were built by string concatenation inside a request handler and could
+not be reviewed, tested or versioned on their own. They now live in
+**`graph_rules.pl`** — versioned in git, embedded in the binary, with a
+`--graph-rules` override for working on them.
+
+| predicate | derives |
+|---|---|
+| `inverse_of` | a relation whose reverse is implied but not stored |
+| `together` | two people at the same place on the same day |
+| `serves` | a place serves a dish, from an order during a visit |
+| `contradiction` | a relation admitting one value per subject, holding two |
+
+`graph_infer` answers with them; `graph_verify` reports contradictions plus type
+violations. Nothing is written — these are answers, not rows.
+
+**Production:** 589 edges → 58 derived facts in 0.15 s. `together` found 19,
+including the 2026-07-25 food tour (Барон and Кирилл at Алкон, Золотая Вобла,
+Ленинградский рынок, Мяснов, Сварня) recorded as separate visits and never
+connected.
+
+**Verification found three things, two of them bugs in this repo:**
+- `иллюстрация` was declared the wrong way round; its single-type object end made
+  propagation type every illustrated entity as an image (Cooksy, MATRICA).
+  Fixing the direction took the report from 81 issues to 13.
+- `рассказ_о` rejected a person as subject, so "Барон рассказал о" was flagged.
+  The vocabulary was wrong, not the edge.
+- The rest are real data problems, now visible: legacy `иллюстрация` edges in
+  both directions, images recorded as ordering dishes, legacy edges pointing
+  backwards.
+
+**`graph_repair --retype`** is the escape hatch for types derived from a rule
+that later changed: a type, once set, is never overwritten. It clears only types
+no edge justifies, where justification means a relation stating the type
+positively — an open end (`упоминает`) is silence, not support. Six cleared on
+production.
+
+Commit `05dd899`.
