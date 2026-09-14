@@ -150,13 +150,13 @@ type ExtractRequest struct {
 
 // ExtractJobStatus is the current state of an extraction job.
 type ExtractJobStatus struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"` // pending, running, done, failed
-	Keys      []string  `json:"keys,omitempty"`
+	ID        string          `json:"id"`
+	Status    string          `json:"status"` // pending, running, done, failed
+	Keys      []string        `json:"keys,omitempty"`
 	Facts     []ExtractedFact `json:"facts,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Error     string          `json:"error,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 // AsyncExtractor manages a single background worker that performs fact
@@ -167,7 +167,7 @@ type AsyncExtractor struct {
 	wg        sync.WaitGroup
 	stopped   bool
 	stopMu    sync.RWMutex // guards stopped flag and channel close/send coordination
-	mu        sync.Mutex    // guards jobs map
+	mu        sync.Mutex   // guards jobs map
 	jobs      map[string]*ExtractJobStatus
 	extractFn func(string) (*ExtractResult, error)
 }
@@ -291,14 +291,14 @@ func (ae *AsyncExtractor) worker() {
 		}
 
 		var keys []string
-		triples := 0
+		triples, outside := 0, 0
 		if req.AutoSave {
 			keys = ae.storage.saveExtractedFacts(res.Facts)
-			triples = ae.storage.saveExtractedTriples(res.Triples)
+			triples, outside = ae.storage.saveExtractedTriples(res.Triples)
 		}
 
-		log.Printf("  [async-extractor] extracted %d facts, %d triples (job %s, elapsed %v, saved %d)",
-			len(res.Facts), triples, req.JobID, elapsed, len(keys))
+		log.Printf("  [async-extractor] extracted %d facts, %d triples (%d outside the vocabulary) (job %s, elapsed %v, saved %d)",
+			len(res.Facts), triples, outside, req.JobID, elapsed, len(keys))
 		ae.updateJob(req.JobID, "done", keys, res.Facts, "")
 	}
 }

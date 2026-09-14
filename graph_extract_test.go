@@ -5,6 +5,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -229,5 +230,140 @@ func TestSenderDisplayName(t *testing.T) {
 		if got := senderDisplayName(in); got != want {
 			t.Errorf("senderDisplayName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestExtractionPromptCoversVocabulary guards against drift: the prompt and the
+// vocabulary are the same contract, so a relation added to one must appear in
+// the other. The previous prompt listed examples with a trailing "...", which
+// is how the graph collected one-off relations nobody could query.
+func TestExtractionPromptCoversVocabulary(t *testing.T) {
+	prompt := extractSystemPrompt()
+	for _, spec := range relationVocabulary {
+		if spec.Document {
+			// The extractor records facts about the world; document relations
+			// describe the archive and must not be offered to the model.
+			if strings.Contains(prompt, "     "+spec.Name+"  (") {
+				t.Errorf("document relation %q leaked into the extraction prompt", spec.Name)
+			}
+			continue
+		}
+		if !strings.Contains(prompt, "     "+spec.Name+"  (") {
+			t.Errorf("relation %q is in the vocabulary but missing from the extraction prompt", spec.Name)
+		}
+	}
+}
+
+// TestSaveExtractedTriplesReportsOutsiders checks that a relation the model
+// invented is stored but counted, so the vocabulary can grow deliberately.
+func TestSaveExtractedTriplesReportsOutsiders(t *testing.T) {
+	store := newTestStorage(t)
+
+	triples := []GraphTriple{
+		{From: "Кирилл", Relation: "был_в", To: "Сварня", Date: "2026-07-23"},
+		{From: "Кирилл", Relation: "заказала", To: "хинкали", Date: "2026-07-23"}, // alias, folds
+		{From: "Баг", Relation: "путает_имя", To: "Кирилл", Date: "2026-07-23"},   // invented
+		{From: "", Relation: "был_в", To: "Сварня"},                               // incomplete
+	}
+	saved, outside := store.saveExtractedTriples(triples)
+	if saved != 2 {
+		t.Fatalf("saved %d triples, want 2 (the invented relation is refused)", saved)
+	}
+	if outside != 1 {
+		t.Fatalf("reported %d outsiders, want 1", outside)
+	}
+	var invented int
+	if err := store.goals.QueryRow(`SELECT COUNT(*) FROM graph_edges WHERE relation='путает_имя'`).Scan(&invented); err != nil {
+		t.Fatal(err)
+	}
+	if invented != 0 {
+		t.Fatal("a relation outside the vocabulary was stored")
+	}
+	// The alias must have been folded into the canonical relation.
+	var n int
+	if err := store.goals.QueryRow(`SELECT COUNT(*) FROM graph_edges WHERE relation='заказал'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("got %d заказал edges, want 1", n)
+	}
+}
+
+// TestBackfillLLMGraphResumes covers the two properties that make a bounded
+// backfill usable: it stops after the limit, and the next run continues instead
+// of starting over.
+func TestBackfillLLMGraphResumes(t *testing.T) {
+	store := newTestStorage(t)
+
+	// Five narrative entries, long enough to pass the length gate.
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		content := strings.Repeat("Кирилл и Теона пошли в Сварню вечером. ", 4)
+		if _, err := store.saveWithKey("memory/memoirs/"+name,
+			&MemoryValue{Content: content, Timestamp: "2026-07-23T18:00:00Z"}, content); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	calls := 0
+	store.extractFn = func(text string) (*ExtractResult, error) {
+		calls++
+		return &ExtractResult{Triples: []GraphTriple{
+			{From: "Кирилл", Relation: "был_в", To: "Сварня", Date: "2026-07-23"},
+		}}, nil
+	}
+
+	first, err := store.backfillLLMGraph(2, true, "")
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if first.Scanned != 2 || calls != 2 {
+		t.Fatalf("first run scanned %d entries with %d calls, want 2 and 2", first.Scanned, calls)
+	}
+	if first.LastKey == "" {
+		t.Fatal("first run did not report a cursor")
+	}
+
+	second, err := store.backfillLLMGraph(2, false, "")
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if second.Scanned != 2 {
+		t.Fatalf("second run scanned %d entries, want 2", second.Scanned)
+	}
+	if second.LastKey <= first.LastKey {
+		t.Fatalf("second run did not advance: %q then %q", first.LastKey, second.LastKey)
+	}
+	if calls != 4 {
+		t.Fatalf("extractor called %d times, want 4", calls)
+	}
+
+	// Both runs extracted the same relation; the graph must hold it once.
+	var n int
+	if err := store.goals.QueryRow(`SELECT COUNT(*) FROM graph_edges WHERE relation='был_в'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("got %d был_в edges, want 1 (backfill is not idempotent)", n)
+	}
+}
+
+// TestBackfillLLMSkipsShortEntries checks the length gate: a model call on a
+// stub of text would only waste a round trip.
+func TestBackfillLLMSkipsShortEntries(t *testing.T) {
+	store := newTestStorage(t)
+	if _, err := store.saveWithKey("memory/memoirs/tiny",
+		&MemoryValue{Content: "ok", Timestamp: "2026-07-23T18:00:00Z"}, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	store.extractFn = func(text string) (*ExtractResult, error) {
+		calls++
+		return &ExtractResult{}, nil
+	}
+	if _, err := store.backfillLLMGraph(10, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("extractor called %d times for a two-character entry, want 0", calls)
 	}
 }

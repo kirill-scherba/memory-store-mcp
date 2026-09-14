@@ -167,3 +167,58 @@ func TestSanitizeLLMJSONUnescapedQuotes(t *testing.T) {
 		t.Fatalf("description = %q, want %q", suggestions[0].Description, want)
 	}
 }
+
+// TestRepairJSONStringsRecoversOverEscapedOutput uses the exact triples block
+// deepseek-v4-flash produced: one slipped backslash before a closing quote, and
+// every following quote escaped as a consequence. Patching only the first
+// defect moves the parse error further down; the scanner has to see the string
+// state of the whole document.
+func TestRepairJSONStringsRecoversOverEscapedOutput(t *testing.T) {
+	const raw = `{
+  "facts": [{"content":"Кирилл показал тоннель","summary":"tunnel","tags":["метро"]}],
+  "triples": [
+    {
+      "from": "Барон",
+      "relation": "был_в",
+      "to": "метро",
+      "date": "2026-08-14\"
+    },
+    {
+      \"from\": \"Кирилл\",
+      \"relation\": \"был_в\",
+      \"to\": \"метро\",
+      \"date\": \"2026-08-14\"
+    }
+  ]
+}`
+
+	out := sanitizeLLMJSON(raw)
+	var res ExtractResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("still invalid after sanitizing: %v\n%s", err, out)
+	}
+	if len(res.Triples) != 2 {
+		t.Fatalf("got %d triples, want 2\n%s", len(res.Triples), out)
+	}
+	if res.Triples[0].From != "Барон" || res.Triples[0].Relation != "был_в" || res.Triples[0].Date != "2026-08-14" {
+		t.Fatalf("first triple = %+v", res.Triples[0])
+	}
+	if res.Triples[1].From != "Кирилл" || res.Triples[1].To != "метро" {
+		t.Fatalf("second triple = %+v", res.Triples[1])
+	}
+}
+
+// TestRepairJSONStringsKeepsEscapedQuotes is the counterweight: a quote that is
+// genuinely escaped inside a value must survive the scanner untouched.
+func TestRepairJSONStringsKeepsEscapedQuotes(t *testing.T) {
+	const raw = `{"content":"Он сказал \"привет\" и ушёл","summary":"s"}`
+	out := sanitizeLLMJSON(raw)
+
+	var v map[string]string
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("escaped quotes were broken: %v\n%s", err, out)
+	}
+	if v["content"] != `Он сказал "привет" и ушёл` {
+		t.Fatalf("content = %q, want %q", v["content"], `Он сказал "привет" и ушёл`)
+	}
+}

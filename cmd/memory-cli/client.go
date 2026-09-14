@@ -41,7 +41,7 @@ func newMemoryClient(dbPath, chatModel, serverURL string) (*memoryClient, error)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create HTTP MCP client: %w", err)
 		}
-		ctx, cfunc = context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cfunc = context.WithTimeout(context.Background(), mcpCallTimeout)
 		if err := c.Start(ctx); err != nil {
 			cfunc()
 			c.Close()
@@ -71,7 +71,7 @@ func newMemoryClient(dbPath, chatModel, serverURL string) (*memoryClient, error)
 			return nil, fmt.Errorf("failed to create MCP client: %w", err)
 		}
 
-		ctx, cfunc = context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cfunc = context.WithTimeout(context.Background(), mcpCallTimeout)
 	}
 
 	// Initialize MCP session (common to both stdio and HTTP modes)
@@ -178,6 +178,12 @@ func (r *memoryClient) proxyStderrWithThinking() {
 		}
 	}()
 }
+
+// mcpCallTimeout bounds an MCP session. The default assumes a fast operation.
+// Commands that run one model call per entry — the graph backfills — raise it,
+// because a session that outlives its context fails silently: the server
+// finishes the work while the client prints nothing.
+var mcpCallTimeout = 120 * time.Second
 
 // findMemoryMCP locates the memory-store-mcp binary in PATH or next to the memory-cli binary.
 func findMemoryMCP() (string, error) {

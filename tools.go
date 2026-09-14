@@ -121,6 +121,7 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: graphAliasTool(s).Tool, Handler: logWrap("graph_alias", s, graphAliasTool(s).Handler)},
 		{Tool: graphRelationsTool(s).Tool, Handler: logWrap("graph_relations", s, graphRelationsTool(s).Handler)},
 		{Tool: graphBackfillTool(s).Tool, Handler: logWrap("graph_backfill", s, graphBackfillTool(s).Handler)},
+		{Tool: graphBackfillLLMTool(s).Tool, Handler: logWrap("graph_backfill_llm", s, graphBackfillLLMTool(s).Handler)},
 	}
 }
 

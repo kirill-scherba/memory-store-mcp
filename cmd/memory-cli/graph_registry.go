@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -169,5 +170,53 @@ existed. Idempotent — re-running changes nothing.`,
 	backfillCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
 	backfillCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
 
-	return []*cobra.Command{repairCmd, mergeCmd, aliasCmd, relationsCmd, backfillCmd}
+	// graph backfill-llm
+	var llmLimit int
+	var llmReset bool
+	var llmTimeout int
+	var llmPrefix string
+	backfillLLMCmd := &cobra.Command{
+		Use:   "backfill-llm",
+		Short: "Extract relations from narrative entries with the LLM",
+		Long: `Read narrative memory entries (memoirs, conversations, notes, goals) with
+the LLM and add the relations they state in prose. Deterministic extractors
+cannot read prose; this is what covers it.
+
+Bounded by --limit and resumable: each run continues where the last stopped, so
+the cost of a full pass can be spread over several runs.`,
+		Example: `  memory-cli graph backfill-llm --limit 10
+  memory-cli graph backfill-llm --limit 50
+  memory-cli graph backfill-llm --limit 10 --reset`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// One model call per entry: the session must outlive the batch.
+			if llmTimeout > 0 {
+				mcpCallTimeout = time.Duration(llmTimeout) * time.Second
+			}
+			client, err := newMemoryClient(dbPath, "", serverURL)
+			if err != nil {
+				return fmt.Errorf("create client: %w", err)
+			}
+			defer client.close()
+
+			result, err := client.callTool("graph_backfill_llm", map[string]any{
+				"limit":  float64(llmLimit),
+				"reset":  llmReset,
+				"prefix": llmPrefix,
+			})
+			if err != nil {
+				return fmt.Errorf("graph_backfill_llm call: %w", err)
+			}
+			fmt.Println(result)
+			return nil
+		},
+	}
+	backfillLLMCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
+	backfillLLMCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
+	backfillLLMCmd.Flags().IntVar(&llmLimit, "limit", 10, "Maximum number of model calls in this run")
+	backfillLLMCmd.Flags().BoolVar(&llmReset, "reset", false, "Start from the beginning instead of resuming")
+	backfillLLMCmd.Flags().IntVar(&llmTimeout, "timeout", 1800, "MCP session timeout in seconds")
+	backfillLLMCmd.Flags().StringVar(&llmPrefix, "prefix", "", "Restrict the run to one key prefix (e.g. memory/user/)")
+
+	return []*cobra.Command{repairCmd, mergeCmd, aliasCmd, relationsCmd, backfillCmd, backfillLLMCmd}
 }

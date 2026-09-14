@@ -6,9 +6,9 @@ package main
 
 import (
 	"encoding/json"
-	"regexp"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -39,6 +39,35 @@ type ExtractResult struct {
 	Triples []GraphTriple   `json:"triples"`
 }
 
+// relationMenu renders the closed relation vocabulary for the extraction prompt.
+//
+// It is generated rather than hand-written so the prompt and the vocabulary
+// cannot drift apart: a relation added to the vocabulary appears in the prompt,
+// one removed disappears. The previous prompt listed examples with a trailing
+// "...", which is an invitation to invent verbs, and the graph collected the
+// result — a tail of one-off relations (путает_имя, проводил_в_аэропорт,
+// может_получить_письмо) that can never be queried, only accumulated.
+//
+// Document relations are left out: the extractor records facts about the world,
+// while "рассказ_о" and "иллюстрация" describe the archive.
+func relationMenu() string {
+	var lines []string
+	for _, spec := range relationVocabulary {
+		if spec.Document {
+			continue
+		}
+		from, to := "any", "any"
+		if len(spec.From) > 0 {
+			from = strings.Join(spec.From, "|")
+		}
+		if len(spec.To) > 0 {
+			to = strings.Join(spec.To, "|")
+		}
+		lines = append(lines, fmt.Sprintf("     %s  (%s -> %s)", spec.Name, from, to))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // extractSystemPrompt returns the system prompt for the extraction LLM call.
 func extractSystemPrompt() string {
 	return `You are a fact extraction system. Given a conversation text, extract important facts, decisions, intentions, key information — and the relations between the entities named in the text.
@@ -50,10 +79,16 @@ Return a JSON object with exactly two keys:
    - summary: a one-line summary (max 100 chars)
    - tags: 2-5 relevant tags
 
-2. "triples" — an array of relations between two entities that are BOTH named in the text:
-   - from: source entity (person, place, project, image, dish, idea, ...)
-   - relation: a short lowercase Russian verb with underscores
-     (был_в, заказал, сгенерировал, породил_идею, рассказал_о, работает_над, написал, ...)
+2. "triples" — relations between two entities that are BOTH named in the text.
+   An EMPTY ARRAY is the normal answer: most text states no relation from this
+   list. A triple is the exception, not the goal.
+
+   - from: source entity
+   - relation: must be copied EXACTLY from this list, in Russian, character for
+     character. Never translate it, never invent one, never use a synonym. If
+     nothing in the list matches what the text states, omit the triple.
+     The arrow shows the entity types the relation connects.
+` + relationMenu() + `
    - to: target entity
    - date: YYYY-MM-DD when the text states one, otherwise ""
 
@@ -79,14 +114,26 @@ var (
 	commaInString = regexp.MustCompile(`([:,])"([^"]*),"(description|title|type|summary|content|priority)"`)
 )
 
-// fixUnescapedQuotes escapes double quotes that appear inside a JSON string
-// value without being escaped, for example:
+// repairJSONStrings walks the text as a JSON token stream and fixes the ways
+// small models break string quoting. It replaces a chain of separate regex
+// patches, because the failures are not independent: one slipped quote makes
+// the model over-escape everything after it, and patching the first defect in
+// isolation only moves the parse error further down.
 //
-//	"description":"Обсудите внедрение "smart search" в платформу"
+// Inside a string, a backslash escapes the next character. A model may put a
+// backslash before a quote that is really the end of the string:
 //
-// A quote inside a string is a closing quote only when the next non-space
-// character is a JSON delimiter (, } ] or :). Anything else is content.
-func fixUnescapedQuotes(s string) string {
+//	"date": "2026-08-14\"
+//
+// The quote closes the string when the next non-space character is a JSON
+// delimiter, so the backslash is dropped and the string closes. The same test
+// identifies an unescaped quote inside a string — "внедрение "smart search" в"
+// — which is escaped instead.
+//
+// Outside a string a backslash is never valid, so it is dropped. That is what
+// recovers an output the model over-escaped: after the first slipped quote it
+// escapes every following quote, and those become plain delimiters again.
+func repairJSONStrings(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + 16)
 
@@ -94,11 +141,28 @@ func fixUnescapedQuotes(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 
-		// Copy escape sequences verbatim.
 		if c == '\\' && inString && i+1 < len(s) {
-			b.WriteByte(c)
+			next := s[i+1]
+			if next != '"' {
+				// An ordinary escape sequence (\n, \t, \\, \u...): keep it.
+				b.WriteByte(c)
+				b.WriteByte(next)
+				i++
+				continue
+			}
+			// A backslash before a quote: does the quote close the string?
+			if quoteClosesString(s, i+1) {
+				b.WriteByte('"')
+				inString = false
+			} else {
+				b.WriteString(`\"`)
+			}
 			i++
-			b.WriteByte(s[i])
+			continue
+		}
+
+		// A backslash outside a string is never valid JSON.
+		if c == '\\' && !inString {
 			continue
 		}
 
@@ -113,11 +177,7 @@ func fixUnescapedQuotes(s string) string {
 			continue
 		}
 
-		j := i + 1
-		for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
-			j++
-		}
-		if j >= len(s) || s[j] == ',' || s[j] == '}' || s[j] == ']' || s[j] == ':' {
+		if quoteClosesString(s, i) {
 			inString = false
 			b.WriteByte(c)
 			continue
@@ -127,6 +187,23 @@ func fixUnescapedQuotes(s string) string {
 		b.WriteString(`\"`)
 	}
 	return b.String()
+}
+
+// quoteClosesString reports whether the quote at position q ends the string:
+// true when the next non-space character is a JSON delimiter.
+func quoteClosesString(s string, q int) bool {
+	j := q + 1
+	for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\r' || s[j] == '\n') {
+		j++
+	}
+	if j >= len(s) {
+		return true
+	}
+	switch s[j] {
+	case ',', '}', ']', ':':
+		return true
+	}
+	return false
 }
 
 // sanitizeLLMJSON repairs what small models emit around otherwise valid JSON:
@@ -153,7 +230,7 @@ func sanitizeLLMJSON(s string) string {
 	s = equalsQuoted.ReplaceAllString(s, `"$1":"$2"`)
 	s = equalsBare.ReplaceAllString(s, `"$1":"$2"`)
 	s = commaInString.ReplaceAllString(s, `$1"$2","$3"`)
-	s = fixUnescapedQuotes(s)
+	s = repairJSONStrings(s)
 	s = trailingComma.ReplaceAllString(s, "$1")
 	return strings.TrimSpace(s)
 }

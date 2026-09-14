@@ -301,3 +301,53 @@ No LLM is involved: an extractor only fires on fields it recognises. Idempotent 
 		},
 	}
 }
+
+// graphBackfillLLMTool runs the LLM extractor over narrative memory entries
+// (memoirs, conversations, notes, goal descriptions) and adds the relations it
+// finds. Bounded by limit and resumable, so the work can be spread over runs.
+func graphBackfillLLMTool(s *Storage) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("graph_backfill_llm",
+			mcp.WithDescription(`Read narrative memory entries (memoirs, conversations, notes, goals) with the LLM and add the relations they state in prose.
+Bounded by limit and resumable: each run continues where the last stopped, so the cost of a full pass can be spread out. Use reset=true to start over.`),
+			mcp.WithNumber("limit",
+				mcp.Description("Maximum number of model calls in this run (default 10)"),
+			),
+			mcp.WithBoolean("reset",
+				mcp.Description("Ignore the stored cursor and start from the beginning (default: false)"),
+			),
+			mcp.WithString("prefix",
+				mcp.Description("Restrict this run to one key prefix (e.g. memory/user/). Does not move the full-backfill cursor."),
+			),
+		),
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := request.GetArguments()
+			limit := 10
+			if v, ok := args["limit"].(float64); ok && v > 0 {
+				limit = int(v)
+			}
+			reset, _ := args["reset"].(bool)
+			prefix, _ := args["prefix"].(string)
+
+			report, err := s.backfillLLMGraph(limit, reset, prefix)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+			propagated, _, _ := propagateEntityTypes(s.goals)
+			out, _ := json.MarshalIndent(map[string]any{
+				"scanned":            report.Scanned,
+				"extracted":          report.Extracted,
+				"triples":            report.Triples,
+				"facts":              report.Facts,
+				"outside_vocabulary": report.Outside,
+				"failed":             report.Failed,
+				"relations":          report.Relations,
+				"outside_relations":  report.OutsideRelations,
+				"last_key":           report.LastKey,
+				"remaining":          report.Remaining,
+				"types_propagated":   propagated,
+			}, "", "  ")
+			return mcp.NewToolResultText(string(out)), nil
+		},
+	}
+}

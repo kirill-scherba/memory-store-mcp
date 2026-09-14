@@ -375,10 +375,10 @@ func TestBackfillImageGraph(t *testing.T) {
 func TestSaveExtractedTriples(t *testing.T) {
 	store := newTestStorage(t)
 
-	n := store.saveExtractedTriples([]GraphTriple{
+	n, _ := store.saveExtractedTriples([]GraphTriple{
 		{From: "Кирилл", Relation: "был_в", To: "Сварня", Date: "2026-09-13"},
-		{From: "", Relation: "мусор", To: "мусор"},                              // incomplete: skipped
-		{From: "Кирилл", Relation: "был_в", To: "Сварня", Date: "2026-09-13"},   // duplicate
+		{From: "", Relation: "мусор", To: "мусор"},                            // incomplete: skipped
+		{From: "Кирилл", Relation: "был_в", To: "Сварня", Date: "2026-09-13"}, // duplicate
 	})
 	if n != 2 {
 		t.Fatalf("processed %d triples, want 2 (one incomplete skipped)", n)

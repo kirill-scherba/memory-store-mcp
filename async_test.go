@@ -171,8 +171,11 @@ func TestAsyncExtractorStopDrains(t *testing.T) {
 	select {
 	case <-done:
 		// ok
-	case <-time.After(5 * time.Second):
-		t.Fatal("Stop() did not return within 5s")
+	case <-time.After(30 * time.Second):
+		// The extractor is a stub, so what is under test is that Stop returns
+		// at all. A 5s budget asserted the machine's speed instead: under a
+		// parallel build it failed while the shutdown itself was fine.
+		t.Fatal("Stop() did not return within 30s")
 	}
 
 	if !ae.stopped {
@@ -238,8 +241,8 @@ func TestAsyncExtractorConcurrentSubmitStop(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Stop() did not return within 5s under concurrent Submit")
+	case <-time.After(30 * time.Second):
+		t.Fatal("Stop() did not return within 30s under concurrent Submit")
 	}
 }
 

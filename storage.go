@@ -376,21 +376,36 @@ func (s *Storage) ExtractJobStatus(jobID string) (ExtractJobStatus, error) {
 // saveExtractedTriples writes the relations found by the extractor into the
 // graph. Idempotent (addGraphEdge deduplicates) and never fatal: a bad triple
 // must not lose the extracted facts. Returns the number of triples processed.
-func (s *Storage) saveExtractedTriples(triples []GraphTriple) int {
-	saved := 0
+func (s *Storage) saveExtractedTriples(triples []GraphTriple) (saved, outside int) {
 	for _, t := range triples {
 		if strings.TrimSpace(t.From) == "" ||
 			strings.TrimSpace(t.To) == "" ||
 			strings.TrimSpace(t.Relation) == "" {
 			continue
 		}
-		if err := addGraphEdge(s.goals, t.From, t.To, t.Relation, t.Date, "auto:extract"); err != nil {
-			log.Printf("⚠ graph: triple %s -[%s]-> %s: %v", t.From, t.Relation, t.To, err)
+		// The extractor is told to pick from the closed vocabulary, so a
+		// relation outside it is a model failure, not new knowledge: measured
+		// on real output, phi4-mini answered with works_with and travels_in
+		// instead of the relations it was given. Such an edge is refused rather
+		// than stored — an unqueryable relation is exactly the noise the
+		// vocabulary exists to keep out. Nothing is lost: the facts the model
+		// produced alongside are saved to memory as usual, and the count is
+		// reported so a relation the model keeps reaching for can still be
+		// added to the vocabulary deliberately.
+		relation, known := canonicalRelation(t.Relation)
+		if !known {
+			outside++
+			log.Printf("🕸 graph: refused a relation outside the vocabulary: %q (%s -> %s)",
+				t.Relation, t.From, t.To)
+			continue
+		}
+		if err := addGraphEdge(s.goals, t.From, t.To, relation, t.Date, "auto:extract"); err != nil {
+			log.Printf("⚠ graph: triple %s -[%s]-> %s: %v", t.From, relation, t.To, err)
 			continue
 		}
 		saved++
 	}
-	return saved
+	return saved, outside
 }
 
 // saveExtractedFacts saves a list of extracted facts to memory. Used by the
