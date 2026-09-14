@@ -84,3 +84,40 @@ End to end `memory-cli suggest` on the cloud model: 15.7 s → 5.4 s, and answer
 quality improved (suggestions cite the real advisory, invoice amount and goal).
 
 Commit `4416e7f`.
+
+## 2026-09-14 — Graph Phase 1: entity registry and relation vocabulary
+
+The graph was a bag of triples. Production showed it: `chapter-08-baron-sees`
+and `chapter-08-baron-sees.md` were two nodes for one document, memoir keys
+competed with real people, `Сварня -> рубиновая: заказал` claimed the place
+ordered the dish, and nine relations existed exactly once.
+
+Three pieces were missing and are now in place:
+
+- **`graph_aliases`** — alias_key -> entity_id. `resolveEntityID`,
+  `edgesForEntity` and `neighborsForEntity` all resolve through it, so a
+  retired spelling still finds the canonical node's edges. A table, not a JSON
+  column: alias lookup must be an index seek.
+- **Entity types** — closed set (person, place, dish, project, tool, image,
+  doc, org, event, idea, thing). Relations declare the types they accept at
+  each end. Types come from unambiguous name patterns and from the relations an
+  entity takes part in (subject of `был_в` is a person, object is a place), so
+  no seed list of names is needed.
+- **Relation vocabulary** — closed. `canonicalRelation` folds extractor
+  spellings on write (`заказала` -> `заказал`); `relationReport` lists what
+  falls outside as the work queue. Unknown relations are stored as written.
+
+`mergeEntities` re-points edges, collapses duplicates and retires the dropped
+name into aliases. `graph_repair` runs the whole pass; `graph_merge`,
+`graph_alias`, `graph_relations` expose the pieces, with CLI subcommands.
+
+**Applied to production:** entities 228 -> 227, edges 422 -> 422 (no fact
+lost), untyped 146 -> 28, 91 pattern types, 27 propagated, 1 document
+duplicate merged, 3 relation rows folded. Types verified correct.
+
+Remaining outside the vocabulary (work queue for extending it):
+`читает_почту_через`, `улетела`, `создал`, `путает_имя`,
+`проводил_в_аэропорт`, `почта`, `направил`, `может_получить_письмо`,
+`запланировал_заказ`.
+
+Commit `1266803`.
