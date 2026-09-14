@@ -150,11 +150,20 @@ func resolveEntityID(db *sql.DB, name, typ string) (int64, error) {
 // addGraphEdge inserts an edge unless an identical one already exists. The
 // unique constraint on (from_id, relation, to_id, date) makes this idempotent.
 func addGraphEdge(db *sql.DB, from, to, relation, date, source string) error {
-	fromID, err := resolveEntityID(db, from, "")
+	return addGraphEdgeTyped(db, from, "", to, "", relation, date, source)
+}
+
+// addGraphEdgeTyped is addGraphEdge with type hints for the two endpoints. A
+// hint is used only when the entity is created, so it can never overwrite a
+// type the registry already established. Deterministic extractors know what
+// they extracted — a mail sender is an organisation, a dish is a dish — and
+// saying so here is what keeps the graph typed as it grows.
+func addGraphEdgeTyped(db *sql.DB, from, fromType, to, toType, relation, date, source string) error {
+	fromID, err := resolveEntityID(db, from, fromType)
 	if err != nil {
 		return err
 	}
-	toID, err := resolveEntityID(db, to, "")
+	toID, err := resolveEntityID(db, to, toType)
 	if err != nil {
 		return err
 	}

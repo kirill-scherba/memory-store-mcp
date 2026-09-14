@@ -256,3 +256,48 @@ func graphRelationsTool(s *Storage) server.ServerTool {
 		},
 	}
 }
+
+// graphBackfillTool applies the deterministic extractors to the whole memory
+// store. New saves are extracted as they happen; this is for the history that
+// was written before the extractors existed.
+func graphBackfillTool(s *Storage) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("graph_backfill",
+			mcp.WithDescription(`Read the whole memory store and add the relations its structured entries already state (visits, dishes, family relations, mail senders).
+No LLM is involved: an extractor only fires on fields it recognises. Idempotent — re-running changes nothing.`),
+		),
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			before, err := graphOverviewOf(s.goals)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+			report, err := s.backfillDeterministicGraph()
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+			after, err := graphOverviewOf(s.goals)
+			if err != nil {
+				return mcp.NewToolResultText(fmt.Sprintf("Error: %v", err)), nil
+			}
+
+			// Types implied by the new edges are worth filling in immediately:
+			// the extractors introduce entities the graph had never seen.
+			propagated, _, _ := propagateEntityTypes(s.goals)
+
+			out, _ := json.MarshalIndent(map[string]any{
+				"entries_scanned":  report.EntriesScanned,
+				"entries_matched":  report.EntriesMatched,
+				"triples":          report.Triples,
+				"by_extractor":     report.ByExtractor,
+				"by_relation":      report.ByRelation,
+				"entities_before":  before.Entities,
+				"entities_after":   after.Entities,
+				"edges_before":     before.Edges,
+				"edges_after":      after.Edges,
+				"types_propagated": propagated,
+				"untyped_after":    after.UntypedEntities,
+			}, "", "  ")
+			return mcp.NewToolResultText(string(out)), nil
+		},
+	}
+}

@@ -508,6 +508,13 @@ func (s *Storage) saveWithKey(key string, value *MemoryValue, text string) (stri
 		}
 	}
 
+	// Deterministic extractors: structured entries state relations directly
+	// ("place", "relation", "sender"), so the graph grows on every save without
+	// an LLM in the loop.
+	if n := s.applyExtractors(key, value); n > 0 {
+		log.Printf("🕸 graph: %s contributed %d relation(s)", key, n)
+	}
+
 	return key, nil
 }
 

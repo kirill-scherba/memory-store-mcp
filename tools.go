@@ -120,6 +120,7 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: graphMergeTool(s).Tool, Handler: logWrap("graph_merge", s, graphMergeTool(s).Handler)},
 		{Tool: graphAliasTool(s).Tool, Handler: logWrap("graph_alias", s, graphAliasTool(s).Handler)},
 		{Tool: graphRelationsTool(s).Tool, Handler: logWrap("graph_relations", s, graphRelationsTool(s).Handler)},
+		{Tool: graphBackfillTool(s).Tool, Handler: logWrap("graph_backfill", s, graphBackfillTool(s).Handler)},
 	}
 }
 

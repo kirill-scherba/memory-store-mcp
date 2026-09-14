@@ -141,5 +141,33 @@ belongs to the closed vocabulary, and the entity type distribution.`,
 	relationsCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
 	relationsCmd.Flags().BoolVar(&vocabularyOnly, "vocabulary", false, "Show only the closed vocabulary")
 
-	return []*cobra.Command{repairCmd, mergeCmd, aliasCmd, relationsCmd}
+	// graph backfill
+	backfillCmd := &cobra.Command{
+		Use:   "backfill",
+		Short: "Extract relations from structured memory entries (no LLM)",
+		Long: `Read the whole memory store and add the relations its structured entries
+already state: visits, dishes, family relations, mail senders. New saves are
+extracted as they happen; this is for the history written before the extractors
+existed. Idempotent — re-running changes nothing.`,
+		Example: `  memory-cli graph backfill`,
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := newMemoryClient(dbPath, "", serverURL)
+			if err != nil {
+				return fmt.Errorf("create client: %w", err)
+			}
+			defer client.close()
+
+			result, err := client.callTool("graph_backfill", map[string]any{})
+			if err != nil {
+				return fmt.Errorf("graph_backfill call: %w", err)
+			}
+			fmt.Println(result)
+			return nil
+		},
+	}
+	backfillCmd.Flags().StringVar(&dbPath, "db", "", "Path to the memory-store-mcp database (stdio mode)")
+	backfillCmd.Flags().StringVar(&serverURL, "server-url", "", "MCP server URL")
+
+	return []*cobra.Command{repairCmd, mergeCmd, aliasCmd, relationsCmd, backfillCmd}
 }
