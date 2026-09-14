@@ -121,3 +121,35 @@ Remaining outside the vocabulary (work queue for extending it):
 `запланировал_заказ`.
 
 Commit `1266803`.
+
+## 2026-09-14 — Graph Phase 2: deterministic extractors
+
+The graph only grew when an LLM emitted a triple or someone called
+`graph_add_edge`. The extractors read structured memory entries directly: pure
+functions over (key, value), no network, no model. A field present means a fact;
+a field absent means nothing at all, never a guess.
+
+| extractor | reads | emits |
+|---|---|---|
+| `place-visit` | an entry with a `place` field | `был_в`, `был_с`, `заказал`, `подают_в` |
+| `food-registry` | the registry's `places[]` | places, dishes, visits |
+| `person-relation` | a person entry's `relation` | `жена`, `дочь`, ... to Кирилл |
+| `mail-sender` | a mail entry's From header | `направил` (display name only) |
+
+They run in the save path (the graph grows by itself) and in `graph_backfill`
+for history. Extractors carry **type hints**, used only on entity creation, so
+new entities arrive typed and a hint can never overwrite the registry.
+
+**Not extracted, deliberately: tags.** A tag is a topic of a record, not a
+relation between two things in the world; wiring tags in would re-introduce the
+low-signal edges the vocabulary removed.
+
+**Bugs found:**
+- `keyvalembd.List` has S3 folder semantics and collapses sub-folders, so one
+  call sees one level only. `Storage.allKeys` walks recursively.
+- `edgesForEntity` / `neighborsForEntity` ignored the alias registry.
+
+**Production:** 5507 entries scanned, 51 matched, 116 triples. Entities
+227 → 287, edges 422 → 532, untyped 26 of 287 (was 146 of 228).
+
+Commit `a14718d`.
