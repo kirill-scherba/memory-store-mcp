@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"crypto/md5"
@@ -234,6 +235,7 @@ type Storage struct {
 	asyncWriter    *AsyncWriter    // non-blocking writes; nil = sync-only
 	asyncExtractor *AsyncExtractor // background LLM extraction; nil = sync-only
 	extractFn      func(string) (*ExtractResult, error)
+	lockMu         sync.Mutex // serializes lease-based lock operations
 }
 
 // VectorIndexDir returns the default directory for the in-process vector index

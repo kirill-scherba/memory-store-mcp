@@ -44,7 +44,7 @@ echo '{
 - **Goal tracking** — create, list, and update goals with progress and status
 - **Timeline** — view memory events over time periods
 - **Proactive suggestions** — analyze context + goals + history to suggest next actions
-- **CLI client** — `memory-cli` wraps the MCP server for shell usage (13 subcommands including `find`, `dig`, and `session`)
+- **CLI client** — `memory-cli` wraps the MCP server for shell usage (17 subcommands including `find`, `dig`, `session`, `graph`, `lock`, and database maintenance)
 - **Telegram bot** — optional notebook/assistant mode via `--telegram`
 - **MCP Resources** — dynamic resources auto-pulled by the assistant: current context, active goals, today's timeline, recent insights
 - **System instructions** — built-in instructions that tell the assistant to auto-save, auto-search, and suggest proactively
@@ -73,6 +73,10 @@ echo '{
 | `session_get` | Retrieve latest session state for a project | project (required) |
 | `session_list` | List session keys by prefix | prefix (optional) |
 | `session_compact` | Delete old timestamped session snapshots | max_age_hours (optional) |
+| `memory_lock_acquire` | Acquire a lease-based lock on a resource | resource (required), owner (required), ttl_seconds (optional, default 60) |
+| `memory_lock_release` | Release a lock held by owner | resource (required), owner (required) |
+| `memory_lock_extend` | Extend the TTL of a lock held by owner | resource (required), owner (required), ttl_seconds (optional, default 60) |
+| `memory_lock_status` | Check whether a resource is currently locked | resource (required) |
 
 ## MCP Resources
 

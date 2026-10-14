@@ -375,7 +375,7 @@ call **rag_query** or **rag_search** to check the RAG knowledge base
 		}, nil
 	})
 
-	log.Printf("Registered 17 tools and 5 resources")
+	log.Printf("Registered %d tools and 5 resources", len(tools(store)))
 
 	// ── Session compact goroutine (best-effort, non-blocking) ──────────────
 	go func() {
