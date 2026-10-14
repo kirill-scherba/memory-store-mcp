@@ -11,7 +11,7 @@
 - [x] MCP server framework with `mcp-go`
 - [x] Key-value storage backed by libSQL via keyvalembd
 - [x] Semantic search via Ollama embeddings (native libSQL vector index for large collections, exact cosine scan otherwise)
-- [x] 19 MCP tools (save, get, delete, search, list, context, extract, goal CRUD, timeline, suggest, find, dig, session save/get/list/compact)
+- [x] 34 MCP tools (save, get, delete, search, list, context, extract, goal CRUD, timeline, suggest, find, dig, session save/get/list/compact, graph CRUD/query/infer/verify, lease-based locks)
 - [x] 5 MCP resources (goals, awareness, context, insights, timeline)
 - [x] Graceful degradation when Ollama unavailable
 - [x] Goal tracking with auto-progress from Markdown subtasks
@@ -34,7 +34,7 @@
 
 ### Phase 3: CLI Client — ✅ Complete
 
-- [x] memory-cli binary with 13 subcommands
+- [x] memory-cli binary with 17 subcommands
 - [x] MCP client connection to memory-store-mcp via stdio
 - [x] Auto-discovery of server binary
 - [x] Formatted output (json/table/summary) via tabwriter
@@ -107,12 +107,15 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 | `llm_test.go` | Unit tests for chat model selection and sanitisation |
 | `storage.go` | Storage struct, Telegram wrapper methods, awareness resource helpers, Find, Dig |
 | `extraction.go` | LLM-based fact extraction from conversation |
-| `tools.go` | Tool definitions and registration (19 tools) |
+| `tools.go` | Tool definitions and registration (34 tools) |
 | `tools_context.go` | Context aggregation for memory_get_context tool |
 | `tools_extract.go` | Extraction tool handler |
 | `tools_goals.go` | Goal CRUD tools, goal mirror to kv_data, Telegram goal wrappers |
 | `tools_goals_test.go` | Unit tests for goal functionality |
 | `tools_suggest.go` | Suggest tool handler |
+| `lock.go` | Lease-based lock storage (acquire/release/extend/status) |
+| `tools_lock.go` | Lock tool handlers |
+| `lock_test.go` | Unit tests for lease-based locks |
 
 ### `telegram/` directory
 
@@ -147,6 +150,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 | `suggest.go` | `memory suggest` subcommand |
 | `format.go` | Output formatting: json/table/summary with tabwriter, truncate, proxyStderrWithThinking |
 | `find.go` | `memory find` subcommand — keyword search via SQL LIKE |
+| `lock.go` | `memory lock` subcommand — lease-based acquire/release/extend/status |
 
 ### `docs/` directory
 
@@ -172,6 +176,7 @@ See [PLAN-002.md](PLAN-002.md) for the full plan.
 ## Recent Fixes & Features
 
 - **Knowledge graph on tables** (2026-09-13): edges moved out of `memory/graph/` entries into `graph_entities` + `graph_edges` with indexes on `(from_id, relation)` and `(to_id, relation)`. Legacy migration is idempotent (249 keys -> 145 entities, 239 edges). `graph_get_edges` is now an indexed lookup instead of 249 `Get` calls; `graph_query` traverses with a recursive CTE and `depth` finally works ("кирилл" depth 2 -> 104 neighbours vs 38 direct before). Edges no longer pollute semantic search.
+- **Lease-based locks** (2026-10-14): new `memory_lock_acquire/release/extend/status` tools store a TTL-protected lease under `memory/locks/<resource>`. A stale lock from a crashed owner or closed MCP pipe is treated as free, so the orchestrator can reconnect and re-acquire instead of failing permanently. Same-owner reacquire is allowed; release and extend are owner-only. Added `memory-cli lock` subcommand and unit tests.
 - **Graph consumption and growth** (2026-09-13): `memory_get_context` and `memory_search` inject a `=== Graph context ===` section for entities mentioned in the query or in the retrieved memories, so the graph is used without calling a tool. The graph grows from gallery image metadata (auto-linked on save plus a startup backfill) and from `memory_extract`, which now returns `{"facts": [...], "triples": [...]}` in the same LLM call. Production: 239 -> 422 edges, 228 entities, 126 images with connections. Auto image mentions are filtered out of the injected context (they belong to the gallery).
 - **Pure-Go SQLite + in-process vector index** (2026-09-13): keyvalembd v0.6.x — `modernc.org/sqlite` instead of go-libsql and `vecindex` instead of libSQL DiskANN. Database 1437 -> 32 MB, index 20 MB, search ~5 ms exact. `memory-cli rebuild-index` replaces `migrate-vector-index`.
 - **Pure-Go SQLite + in-process vector index** (2026-09-13): bumped keyvalembd to v0.6.0 — modernc.org/sqlite instead of go-libsql, and the in-process vecindex instead of libSQL DiskANN. `migrate-vector-index` became `rebuild-index`. Production migration: dropped the DiskANN index and its shadow tables, VACUUM. Database 1083 MB → 32 MB, index 20.4 MB, service RSS 54 MB; search 5 ms, write ~150 ms; 0 errors. Binaries build with CGO_ENABLED=0.

@@ -15,14 +15,14 @@
 │  │     MCP Server Loop     │   │        memory-cli (Go binary)    │            │
 │  │     (ServeStdio)        │   │                                  │            │
 │  │                         │   │  Launch → memory-store-mcp via   │            │
-│  │  19 tools:             │   │  stdin/stdout MCP connection     │            │
+│  │  34 tools:             │   │  stdin/stdout MCP connection     │            │
 │  │  • memory_save          │   │                                  │            │
-│  │  • memory_get           │   │  13 subcommands:                 │            │
+│  │  • memory_get           │   │  17 subcommands:                 │            │
 │  │  • memory_delete        │   │  • save / get / delete / search  │            │
 │  │  • memory_search        │   │  • list / context / extract      │            │
 │  │  • memory_find          │   │  • goals / timeline / suggest    │            │
-│  │  • memory_dig           │   │  • find / dig / session          │            │
-│  │  • memory_list          │   │                                  │            │
+│  │  • memory_dig           │   │  • find / dig / session / graph  │            │
+│  │  • memory_list          │   │  • lock / rebuild-index / compact│            │
 │  │  • memory_get_context   │   │                                  │            │
 │  │  • memory_extract       │   └──────────┬───────────────────────┘            │
 │  │  • memory_goal_create   │              │ (direct connection,                │
@@ -261,6 +261,34 @@ Implements MCP (Model Context Protocol) via JSON-RPC 2.0:
 - **Parameters**: `max_age_hours` (number, optional, default 168)
 - **Returns**: Count of deleted entries
 
+### memory_lock_acquire
+
+- **Purpose**: Acquire a lease-based lock on a resource
+- **Parameters**: `resource` (string, required), `owner` (string, required), `ttl_seconds` (number, optional, default 60)
+- **Returns**: JSON object with `acquired`, `owner`, `expires_at`, `acquired_at`
+- **Behavior**: If the lock is free, expired, or already held by the same owner, it succeeds and resets the TTL. A different owner must wait until the lease expires or the lock is released.
+
+### memory_lock_release
+
+- **Purpose**: Release a lease-based lock held by owner
+- **Parameters**: `resource` (string, required), `owner` (string, required)
+- **Returns**: JSON object with `released`
+- **Behavior**: Only the current owner can release the lock.
+
+### memory_lock_extend
+
+- **Purpose**: Extend the TTL of an existing lock held by owner
+- **Parameters**: `resource` (string, required), `owner` (string, required), `ttl_seconds` (number, optional, default 60)
+- **Returns**: JSON object with `acquired`, `owner`, `expires_at`, `acquired_at`
+- **Behavior**: Only the current owner can extend the lock. The new TTL is measured from the moment of the call.
+
+### memory_lock_status
+
+- **Purpose**: Check whether a resource is currently locked and by whom
+- **Parameters**: `resource` (string, required)
+- **Returns**: JSON object with `locked`, and `owner`/`expires_at`/`acquired_at` when locked
+- **Behavior**: Expired locks are reported as free (`locked: false`).
+
 ## MCP Resources
 
 Five dynamic MCP resources provide direct access to aggregated state:
@@ -280,7 +308,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 - **Architecture**:
   - Spawns memory-store-mcp as a child process
   - Connects via JSON-RPC 2.0 over stdin/stdout
-  - 16 top-level subcommands cover memory, goal, timeline, suggestion, dig, session, graph, and database maintenance
+  - 17 top-level subcommands cover memory, goal, timeline, suggestion, dig, session, graph, lock, and database maintenance
   - `session` groups the `session_save`, `session_get`, `session_list`, and `session_compact` MCP tools
 - **Features**:
   - Auto-discovery of memory-store-mcp binary (PATH, same directory, GOPATH/bin)
@@ -306,6 +334,7 @@ Five dynamic MCP resources provide direct access to aggregated state:
 | `dig` | Deep contextual search with time-window scenes |
 | `session` | Manage AI session state (save/get/list/compact) |
 | `graph` | Knowledge graph operations (get edges, query) |
+| `lock` | Lease-based distributed locks (acquire/release/extend/status) |
 | `rebuild-index` | Force a rebuild of the in-process memory-mapped vector index |
 | `compact` | Drop the legacy embedding column and VACUUM the database |
 
@@ -596,6 +625,29 @@ gallery reads those names and parses the tool text with
 5. Prolog rules in a versioned file plus `memory_verify` for consistency checks.
 
 Not implemented: a path query between two entities — only neighbourhoods.
+
+## Lease-based Locks
+
+Repository locks were previously implemented ad-hoc with raw `memory_get`/`memory_save`.
+When `memory-store-mcp` crashed or the MCP pipe closed, the lock value stayed in the
+database and the orchestrator could never re-acquire the resource. The new lock
+tools store a lease record under `memory/locks/<resource>`:
+
+```json
+{
+  "owner": "orch-1",
+  "acquired_at": "2026-10-14T18:00:00Z",
+  "expires_at": "2026-10-14T18:01:00Z"
+}
+```
+
+- **TTL-driven expiry**: a lock older than its `expires_at` is treated as free, so a dead owner or closed pipe cannot block a resource forever.
+- **Same-owner reacquire**: the same owner can re-acquire an existing lock, resetting the TTL. This helps clients that reconnect after a transient pipe error.
+- **Owner-only release/extend**: only the recorded owner can release or extend a non-expired lock.
+- **Storage-level serialization**: a `sync.Mutex` in the `Storage` struct serializes lock operations so that concurrent MCP calls cannot race on read-modify-write.
+
+The lock tools intentionally avoid embedding generation (they use raw `kv.Set`) and
+are not written to the timeline, so they are cheap and do not pollute the event log.
 
 ## Graceful Degradation
 

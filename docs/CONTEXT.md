@@ -18,13 +18,13 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Semantic search** — vector similarity via Ollama embeddings (embeddinggemma:latest); answered from an in-process, memory-mapped exact index (`<db>-idx`, ~3 KB/vector), falling back to a database scan when no index is configured
 - **Hierarchical keys** — S3-style: `memory/project/...`, `memory/user/...`, `memory/technical/...`
 - **Structured values** — JSON with content, summary, tags, timestamp, source
-- **MCP protocol** — JSON-RPC 2.0 over stdin/stdout or HTTP/SSE, 19 tools, 5 resources
+- **MCP protocol** — JSON-RPC 2.0 over stdin/stdout or HTTP/SSE, 34 tools, 5 resources
 - **Goal tracking** — full CRUD with status/progress/priority/labels/deadlines, auto-progress from Markdown subtasks
 - **Timeline** — event log with date range queries
 - **Fact extraction** — auto-extract structured facts from conversation via LLM; background AsyncExtractor prevents timeouts when auto_save is true
 - **Proactive suggestions** — LLM-powered next-action recommendations
 - **Telegram bot** — optional Telegram integration with `/note`, `/search`, `/goal`, `/suggest`, `/context`, `/ask` commands; access control via `TELEGRAM_ALLOWED_USERS`; multi-language support (en/ru)
-- **CLI client** — 16 subcommands with formatted output (json/table/summary), including `rebuild-index` (in-process vector index) and `compact` (drop legacy column + VACUUM)
+- **CLI client** — 17 subcommands with formatted output (json/table/summary), including `rebuild-index` (in-process vector index), `compact` (drop legacy column + VACUUM), and `lock` (lease-based distributed locks)
 - **Multi-language suggest** — en/ru support for suggestion prompts, configurable via Telegram user language preference
 - **Default model**: `phi4-mini` (switched from `qwen2.5-coder:7b` on 2026-07-13 after comparative testing — phi4-mini is faster on short texts, equal on long texts, already loaded by RAG, uses less RAM). `qwen2.5-coder:7b` available via `--extract-model` / `--chat-model` flags
 - **Refactored environment** — single env var `TELEGRAM_ALLOWED_USERS`; all other config via CLI flags (`--db`, `--model`, `--chat-model`, `--llm-url`, `--llm-api-key`, `--save-timeout`)
@@ -36,6 +36,7 @@ AI assistants typically have no memory across sessions. Each conversation starts
 - **Contextual deep-search (memory_dig)** — finds entries matching a query, builds scenes with time-window context (entries before/after each match), intersects with additional keywords for relevance ranking; designed for "образная память" (associative human memory); available in MCP, CLI, and Telegram
 - **Session management** — save, get, list, and compact AI session state; available in MCP and CLI
 - **Knowledge graph** — entities and relations in indexed tables (`graph_entities`, `graph_edges`), not as key-value entries. `graph_get_edges` is an indexed lookup (two index seeks) and `graph_query` traverses with a recursive CTE, so `depth` is real. Connections are injected into `memory_get_context` and `memory_search` automatically, so the agent never has to remember to call a graph tool. The graph grows from gallery image metadata (deterministic) and from `memory_extract` triples (same LLM call as the facts).
+- **Lease-based locks** — `memory_lock_acquire/release/extend/status` give callers a TTL-protected distributed lock. If the owner crashes or the MCP pipe closes, the lock expires automatically and another caller can acquire the resource, preventing the permanent lock blockage that caused orchestrator failures.
 - **Bounded timeline** — only meaningful events are logged (writes, extraction, sessions, graph edges, goals); read tools are excluded, and `PruneTimeline` drops non-allowlisted types plus events older than `--timeline-retention` (default 30 days)
 
 ## Target Audience
@@ -237,3 +238,18 @@ positively — an open end (`упоминает`) is silence, not support. Six c
 production.
 
 Commit `05dd899`.
+
+## 2026-10-14 — Lease-based locks for orchestrator resilience
+
+The orchestrator-watchdog started failing to acquire repository locks whenever
+`memory-store-mcp` terminated unexpectedly, because the old ad-hoc locking
+relied on raw `memory_get` and left the lock key in place indefinitely. The
+server now provides proper lease-based lock primitives:
+
+- `memory_lock_acquire` / `memory_lock_release` / `memory_lock_extend` / `memory_lock_status`
+- Locks are stored under `memory/locks/<resource>` with `owner`, `acquired_at`, and `expires_at`.
+- A lock with a stale TTL is treated as free, so a crashed owner or closed MCP pipe can never block a resource forever.
+- The same owner is allowed to re-acquire a lock, which resets the TTL — useful after a transient reconnect.
+
+This removes one root cause of the `read/write on closed pipe` lock failures and
+lets the orchestrator reconnect and re-acquire instead of failing permanently.

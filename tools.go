@@ -124,6 +124,10 @@ func tools(s *Storage) []server.ServerTool {
 		{Tool: graphBackfillLLMTool(s).Tool, Handler: logWrap("graph_backfill_llm", s, graphBackfillLLMTool(s).Handler)},
 		{Tool: graphInferTool(s).Tool, Handler: logWrap("graph_infer", s, graphInferTool(s).Handler)},
 		{Tool: graphVerifyTool(s).Tool, Handler: logWrap("graph_verify", s, graphVerifyTool(s).Handler)},
+		{Tool: memoryLockAcquireTool(s).Tool, Handler: logWrap("memory_lock_acquire", s, memoryLockAcquireTool(s).Handler)},
+		{Tool: memoryLockReleaseTool(s).Tool, Handler: logWrap("memory_lock_release", s, memoryLockReleaseTool(s).Handler)},
+		{Tool: memoryLockExtendTool(s).Tool, Handler: logWrap("memory_lock_extend", s, memoryLockExtendTool(s).Handler)},
+		{Tool: memoryLockStatusTool(s).Tool, Handler: logWrap("memory_lock_status", s, memoryLockStatusTool(s).Handler)},
 	}
 }
 
