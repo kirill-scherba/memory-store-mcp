@@ -238,6 +238,24 @@ type Storage struct {
 	lockMu         sync.Mutex // serializes lease-based lock operations
 }
 
+// SetEmbedder points the store's embeddings at a model and an Ollama address. The constructor can
+// only use the package defaults, so a host whose Ollama lives at another address (a container
+// asking host.docker.internal, a server asking a remote engine) must say so right after opening the
+// database, or semantic search answers "embedder is not ready" while Ollama is reachable.
+func (s *Storage) SetEmbedder(model, ollamaURL string) {
+	if s.kv != nil {
+		s.kv.SetEmbedder(model, ollamaURL)
+	}
+}
+
+// EmbedderModel names the model the embeddings use, for a log line or a status screen.
+func (s *Storage) EmbedderModel() string {
+	if s.kv == nil {
+		return ""
+	}
+	return s.kv.EmbedderModel()
+}
+
 // VectorIndexDir returns the default directory for the in-process vector index
 // belonging to a database path.
 func VectorIndexDir(dbPath string) string { return dbPath + "-idx" }

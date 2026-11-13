@@ -95,6 +95,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/kirill-scherba/keyvalembd v0.6.1 h1:yHW1ojUVEsNyB0XoV/WnRDMx9iHN6jFc8y+FVk59eSE=
 github.com/kirill-scherba/keyvalembd v0.6.1/go.mod h1:CGHP00A0T1zwfHj+UKTnQf2TBjAgYQ3l9Q6GkkyDRzU=
+github.com/kirill-scherba/keyvalembd v0.6.4 h1:W/z2vtmj91LHt7bjanWukjoBocp+7HiglsHQoO4+RUQ=
+github.com/kirill-scherba/keyvalembd v0.6.4/go.mod h1:CGHP00A0T1zwfHj+UKTnQf2TBjAgYQ3l9Q6GkkyDRzU=
 github.com/kirill-scherba/s3lite v0.1.2 h1:M8bggzBMq8ePhYjAt9x5EWHP0H6vq2mYe4+/WdmRoQg=
 github.com/kirill-scherba/s3lite v0.1.2/go.mod h1:8js2HaPufjMSMPVd8CjlCT/s/+9S1q3oG7hWM4QXs0g=
 github.com/kirill-scherba/sqlh v0.8.1 h1:/hNOn6uWcfZXdisDFYY5stAGuJcFMMnr/SDlG77Dr1w=

@@ -40,6 +40,13 @@ type Options struct {
 	ExtractModel      string
 	LLMURL            string
 	LLMAPIKey         string
+	// EmbeddingModel and OllamaURL name the embedder for semantic search. A host that keeps its
+	// Ollama elsewhere (a container asking host.docker.internal, a server asking a remote engine)
+	// must not be tied to localhost: the constructor only knows the defaults (13.11.2026: the
+	// memory of the pro-tools installation answered "embedder is not ready" while Ollama was
+	// reachable - the embedder had been pointed at 127.0.0.1).
+	EmbeddingModel    string
+	OllamaURL         string
 	TelegramToken     string
 	HTTPAddr          string
 	SaveTimeout       time.Duration
@@ -112,6 +119,17 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("initialize storage: %w", err)
 	}
 	defer store.Close()
+
+	// The embedder follows the host: the same URL the rest of the installation uses for its own
+	// search. Left unset, the package keeps its localhost default.
+	if strings.TrimSpace(opts.OllamaURL) != "" || strings.TrimSpace(opts.EmbeddingModel) != "" {
+		store.SetEmbedder(strings.TrimSpace(opts.EmbeddingModel), strings.TrimSpace(opts.OllamaURL))
+		where := strings.TrimSpace(opts.OllamaURL)
+		if where == "" {
+			where = "the package default"
+		}
+		log.Printf("   embeddings:    %s at %s", store.EmbedderModel(), where)
+	}
 
 	// Enable asynchronous writes with 1 worker and queue depth 64.
 	// This makes memory_save and memory_extract return immediately
