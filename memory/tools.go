@@ -146,21 +146,24 @@ Examples:
   memory/project/ai-hub/features/tool-generation
   memory/user/kirill/preferences/editor
 
-value (string) — structured, machine-readable data (JSON-like).
-  Used for: configs, status flags, key-value facts.
-text (string) — long-form content for semantic search embeddings.
-  Used for: notes, observations, documentation, conversation summaries.
-  If both provided: value = metadata, text = searchable content.`),
+text (string) — what is to be remembered; it is also the text that is searched. REQUIRED.
+value (string) — optional structured JSON with the same facts (content, summary, tags, source,
+  status, priority, goal_id). When it is missing, text becomes the content.
+tags (array of strings) — optional labels, kept inside value.
+One field is enough: a plain sentence in text, or a JSON object in value.`),
 		mcp.WithString("key",
 			mcp.Description("Hierarchical key (e.g. memory/project/cooksy/architecture). Optional if auto_key=true. Pattern: memory/project/<name>/<category>/<id>"),
 		),
 		mcp.WithString("value",
-			mcp.Description("JSON value with content, summary, tags, source, timestamp, status, priority, goal_id. Structured data for machine reading."),
-			mcp.Required(),
+			mcp.Description("Optional JSON with content, summary, tags, source, timestamp, status, priority, goal_id. Structured data for machine reading."),
 		),
 		mcp.WithString("text",
-			mcp.Description("Text for embedding + semantic search. Long-form content (notes, docs, observations). Combined with value as metadata."),
+			mcp.Description("What is to be remembered; also the text that is searched. A plain sentence is enough."),
 			mcp.Required(),
+		),
+		mcp.WithArray("tags",
+			mcp.Description("Optional labels, kept inside value.tags."),
+			mcp.Items(map[string]any{"type": "string"}),
 		),
 		mcp.WithBoolean("auto_key",
 			mcp.Description("If true, auto-generate key as memory/auto/YYYY-MM-DD/<hash>"),
@@ -176,21 +179,37 @@ text (string) — long-form content for semantic search embeddings.
 			text, _ := args["text"].(string)
 			autoKey, _ := args["auto_key"].(bool)
 
-			if value == "" || text == "" {
-				return mcp.NewToolResultText("Error: value and text are required"), nil
+			// One field is enough. A caller that sends only "value" (or only "text") means the same as
+			// one that sends both: refusing it teaches nobody the schema, and a model that guesses a
+			// field name loses the fact instead of saving it (13.11.2026: the agent sent value and
+			// tags, the answer was "text: Missing key").
+			if strings.TrimSpace(text) == "" {
+				text = strings.TrimSpace(value)
+			}
+			if strings.TrimSpace(text) == "" {
+				return mcp.NewToolResultText("Error: text is required - what should be remembered"), nil
 			}
 
-			// Parse value into MemoryValue
 			var memVal MemoryValue
-			if err := json.Unmarshal([]byte(value), &memVal); err != nil {
-				return mcp.NewToolResultText(fmt.Sprintf("Error parsing value JSON: %v", err)), nil
+			if v := strings.TrimSpace(value); v != "" {
+				if err := json.Unmarshal([]byte(v), &memVal); err != nil {
+					// A plain sentence is not JSON: it is the content, not an error.
+					memVal.Content = v
+				} else if memVal.Content == "" && memVal.Summary == "" {
+					// Arbitrary JSON without content or summary is kept whole: a caller that stores
+					// raw data must not lose it (the rule that stood here before).
+					memVal.Content = v
+				}
 			}
-
-			// Preserve arbitrary JSON as Content when no explicit content or summary
-			// fields were provided, preventing silent data loss for callers that store
-			// raw JSON instead of the MemoryValue structure.
 			if memVal.Content == "" && memVal.Summary == "" {
-				memVal.Content = value
+				memVal.Content = text
+			}
+			if raw, ok := args["tags"].([]any); ok {
+				for _, t := range raw {
+					if tag, ok := t.(string); ok && strings.TrimSpace(tag) != "" {
+						memVal.Tags = append(memVal.Tags, tag)
+					}
+				}
 			}
 
 			res := s.SaveWithTimeout(saveTimeout, key, &memVal, text, autoKey)

@@ -711,14 +711,16 @@ func TestLogWrap(t *testing.T) {
 	}
 }
 
-func TestMemorySaveToolInvalidJSON(t *testing.T) {
+// A "value" that is not JSON is a sentence, and a sentence is content. It used to be an error, which
+// meant a caller who sent the fact in the wrong shape lost it (13.11.2026).
+func TestMemorySaveToolPlainValueIsContent(t *testing.T) {
 	store := newTestStorage(t)
 	tool := memorySaveTool(store)
 
 	req := newToolRequest(map[string]interface{}{
-		"key":   "x",
-		"value": `not valid json`,
-		"text":  "text",
+		"key":   "memory/test/plain-value",
+		"value": `Создатель AnyText`,
+		"text":  "Создатель AnyText",
 	})
 
 	res, err := tool.Handler(context.Background(), req)
@@ -726,8 +728,12 @@ func TestMemorySaveToolInvalidJSON(t *testing.T) {
 		t.Fatalf("Handler error = %v", err)
 	}
 	text := res.Content[0].(mcp.TextContent).Text
-	if !strings.Contains(text, "Error") {
-		t.Fatalf("Result = %q, want error", text)
+	if !strings.Contains(text, "Memory saved") {
+		t.Fatalf("Result = %q, want saved", text)
+	}
+	got, _ := store.Get("memory/test/plain-value")
+	if got == nil || !strings.Contains(got.Content, "Создатель AnyText") {
+		t.Fatalf("предложение не сохранено: %+v", got)
 	}
 }
 
@@ -918,5 +924,62 @@ func TestLogWrapSkipsMachineStateKeys(t *testing.T) {
 	}
 	if n := countEvents(); n != 1 {
 		t.Fatalf("a real write logged %d events, want 1", n)
+	}
+}
+
+// One field is enough. A model that sends only "value", or a person who pastes a code block with a
+// value and a tag, must get the fact saved - not a lesson in the schema (13.11.2026: the agent in the
+// pro-tools installation was answered "text: Missing key" and the fact was lost).
+func TestMemorySaveTakesOneField(t *testing.T) {
+	store := newTestStorage(t)
+	tool := memorySaveTool(store)
+
+	cases := []struct {
+		name string
+		args map[string]interface{}
+		want string
+	}{
+		{
+			name: "only text",
+			args: map[string]interface{}{"key": "memory/test/only-text", "text": "Создатель AnyText"},
+			want: "Создатель AnyText",
+		},
+		{
+			name: "only value, a plain sentence",
+			args: map[string]interface{}{"key": "memory/test/only-value", "value": "Создатель AnyText"},
+			want: "Создатель AnyText",
+		},
+		{
+			name: "value and tags",
+			args: map[string]interface{}{
+				"key":   "memory/test/value-tags",
+				"value": `{"content":"Создатель AnyText"}`,
+				"tags":  []any{"profile", "creator"},
+			},
+			want: "Создатель AnyText",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := tool.Handler(context.Background(), newToolRequest(c.args))
+			if err != nil {
+				t.Fatalf("Handler error = %v", err)
+			}
+			text := res.Content[0].(mcp.TextContent).Text
+			if !strings.Contains(text, "Memory saved") {
+				t.Fatalf("Result = %q, want 'Memory saved'", text)
+			}
+			got, _ := store.Get(c.args["key"].(string))
+			if got == nil || !strings.Contains(got.Content, c.want) {
+				t.Fatalf("не сохранено: %+v", got)
+			}
+		})
+	}
+
+	// Nothing at all is still an error, and it says what is missing.
+	res, _ := tool.Handler(context.Background(), newToolRequest(map[string]interface{}{"key": "memory/test/empty"}))
+	if txt := res.Content[0].(mcp.TextContent).Text; !strings.Contains(txt, "text is required") {
+		t.Fatalf("пустая запись принята: %q", txt)
 	}
 }
