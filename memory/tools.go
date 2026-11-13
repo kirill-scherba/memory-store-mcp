@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -183,11 +184,19 @@ One field is enough: a plain sentence in text, or a JSON object in value.`),
 			// one that sends both: refusing it teaches nobody the schema, and a model that guesses a
 			// field name loses the fact instead of saving it (13.11.2026: the agent sent value and
 			// tags, the answer was "text: Missing key").
+			derived := false
 			if strings.TrimSpace(text) == "" {
 				text = strings.TrimSpace(value)
+				derived = text != ""
 			}
 			if strings.TrimSpace(text) == "" {
 				return mcp.NewToolResultText("Error: text is required - what should be remembered"), nil
+			}
+			if derived {
+				// A caller who sends one field gets the fact saved and a trace in the journal: a quiet
+				// acceptance of a sloppy call is worth a line, or nobody ever learns which client
+				// forgets the field (13.11.2026).
+				log.Printf("⚠️ memory_save: text taken from value (key=%q)", key)
 			}
 
 			var memVal MemoryValue
@@ -205,10 +214,17 @@ One field is enough: a plain sentence in text, or a JSON object in value.`),
 				memVal.Content = text
 			}
 			if raw, ok := args["tags"].([]any); ok {
+				seen := map[string]bool{}
+				for _, t := range memVal.Tags {
+					seen[t] = true
+				}
 				for _, t := range raw {
-					if tag, ok := t.(string); ok && strings.TrimSpace(tag) != "" {
-						memVal.Tags = append(memVal.Tags, tag)
+					tag, ok := t.(string)
+					if !ok || strings.TrimSpace(tag) == "" || seen[tag] {
+						continue
 					}
+					seen[tag] = true
+					memVal.Tags = append(memVal.Tags, tag)
 				}
 			}
 
@@ -218,6 +234,9 @@ One field is enough: a plain sentence in text, or a JSON object in value.`),
 			}
 
 			result := fmt.Sprintf("Memory saved\nKey: %s\nElapsed: %v", res.Key, res.Elapsed)
+			if derived {
+				result += "\ntext: taken from value"
+			}
 			return mcp.NewToolResultText(result), nil
 		},
 	}
